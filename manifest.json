@@ -1,0 +1,9 @@
+{
+  "id": "rollover-to-tomorrow",
+  "name": "Rollover To Tomorrow",
+  "version": "1.2.0",
+  "minAppVersion": "0.12.12",
+  "description": "This Obsidian.md plugin rolls over incomplete TODOs from today's daily note to tomorrow's daily note. (https://obsidian.md). Based on the original Rollover Daily Todos plugin.",
+  "author": "Wren",
+  "isDesktopOnly": false
+}

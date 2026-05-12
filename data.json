@@ -1,0 +1,8 @@
+{
+  "dailyNoteFolder": "daily-notes",
+  "templateHeading": "### ⭐ Tasks:",
+  "deleteOnComplete": true,
+  "removeEmptyTodos": true,
+  "rolloverChildren": true,
+  "doneStatusMarkers": "xX-"
+}
