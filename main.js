@@ -1189,6 +1189,23 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     });
   }
 
+  removeTomorrowMentionFromTask(line) {
+    return line.replace(/^(\s*[*+-] \[[^\]]*\]\s*)(?:tomorrow|tmrw)(?:\s*[:,-]\s*|\s+)/i, "$1");
+  }
+
+  removeEmptyTodosAndBlankLinesAbove(lines, insertionIndex) {
+    while (
+      insertionIndex > 0 &&
+      (/^\s*$/.test(lines[insertionIndex - 1]) ||
+        /^\s*[-*+] \[\s*\]\s*$/.test(lines[insertionIndex - 1]))
+    ) {
+      lines.splice(insertionIndex - 1, 1);
+      insertionIndex--;
+    }
+
+    return insertionIndex;
+  }
+
   getCleanFolder(folder) {
     // Check if user defined folder with root `/` e.g. `/dailies`
     if (folder.startsWith("/")) {
@@ -1311,6 +1328,9 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
       } else {
         todosAdded = todosToday.length;
       }
+      todosTomorrow = todosTomorrow.map((line) =>
+        this.removeTomorrowMentionFromTask(line)
+      );
 
       // get tomorrow's content and modify it
       let templateHeadingNotFoundMessage = "";
@@ -1322,7 +1342,6 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
           file: tomorrowNote,
           oldContent: `${dailyNoteContent}`,
         };
-        const todosTomorrowString = `\n${todosTomorrow.join("\n")}`;
 
         // If template heading is selected, try to rollover to template heading
         if (templateHeadingSelected) {
@@ -1338,7 +1357,11 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
                 break;
               }
             }
-            lines.splice(nextHeadingIndex, 0, ...todosTomorrow);
+            const insertionIndex = this.removeEmptyTodosAndBlankLinesAbove(
+              lines,
+              nextHeadingIndex
+            );
+            lines.splice(insertionIndex, 0, ...todosTomorrow);
             dailyNoteContent = lines.join("\n");
           }
         }
@@ -1348,7 +1371,13 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
           !templateHeadingSelected ||
           templateHeadingNotFoundMessage.length > 0
         ) {
-          dailyNoteContent += todosTomorrowString;
+          const lines = dailyNoteContent.split("\n");
+          const insertionIndex = this.removeEmptyTodosAndBlankLinesAbove(
+            lines,
+            lines.length
+          );
+          lines.splice(insertionIndex, 0, ...todosTomorrow);
+          dailyNoteContent = lines.join("\n");
         }
 
         await this.app.vault.modify(tomorrowNote, dailyNoteContent);
