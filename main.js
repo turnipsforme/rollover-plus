@@ -927,7 +927,9 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
 
     new obsidian.Setting(this.containerEl)
       .setName("Template heading")
-      .setDesc("Which heading from your template should the todos go under")
+      .setDesc(
+        "Choose a preferred template heading, or let the plugin automatically find the first heading containing the word task or tasks."
+      )
       .addDropdown((dropdown) =>
         dropdown
           .addOptions({
@@ -935,7 +937,7 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
               acc[heading] = heading;
               return acc;
             }, {}),
-            none: "None",
+            none: "Auto-detect Tasks heading",
           })
           .setValue(this.plugin?.settings.templateHeading)
           .onChange((value) => {
@@ -1206,21 +1208,35 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
       .toLocaleLowerCase();
   }
 
+  isTaskHeading(line) {
+    return (
+      /^\s*#{1,}\s+/.test(line) &&
+      /\btasks?\b/i.test(this.normalizeHeading(line))
+    );
+  }
+
   findTemplateHeadingIndex(lines, templateHeading) {
     const selectedHeading = (templateHeading || "").trim();
-    const exactMatchIndex = lines.findIndex(
-      (line) => line.trim() === selectedHeading
-    );
-    if (exactMatchIndex !== -1) {
-      return exactMatchIndex;
+    if (selectedHeading && selectedHeading !== "none") {
+      const exactMatchIndex = lines.findIndex(
+        (line) => line.trim() === selectedHeading
+      );
+      if (exactMatchIndex !== -1) {
+        return exactMatchIndex;
+      }
+
+      const normalizedHeading = this.normalizeHeading(selectedHeading);
+      const normalizedMatchIndex = lines.findIndex(
+        (line) =>
+          /^\s*#{1,}\s+/.test(line) &&
+          this.normalizeHeading(line) === normalizedHeading
+      );
+      if (normalizedMatchIndex !== -1) {
+        return normalizedMatchIndex;
+      }
     }
 
-    const normalizedHeading = this.normalizeHeading(selectedHeading);
-    return lines.findIndex(
-      (line) =>
-        /^\s*#{1,}\s+/.test(line) &&
-        this.normalizeHeading(line) === normalizedHeading
-    );
+    return lines.findIndex((line) => this.isTaskHeading(line));
   }
 
   removeRolledOverTodos(content, todos) {
@@ -1246,12 +1262,10 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
 
   insertTodosInNote(content, todos, templateHeading) {
     const { lines, newline } = this.splitNoteContent(content);
-    const templateHeadingSelected = templateHeading !== "none";
-    let headingLineIndex = -1;
-
-    if (templateHeadingSelected) {
-      headingLineIndex = this.findTemplateHeadingIndex(lines, templateHeading);
-    }
+    const headingLineIndex = this.findTemplateHeadingIndex(
+      lines,
+      templateHeading
+    );
 
     let insertionIndex = lines.length;
     if (headingLineIndex !== -1) {
@@ -1271,7 +1285,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
 
     return {
       content: lines.join(newline),
-      headingFound: !templateHeadingSelected || headingLineIndex !== -1,
+      headingFound: headingLineIndex !== -1,
     };
   }
 
@@ -1294,7 +1308,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
 
   removeEmptyTasksHeadings(lines) {
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (!/^\s*#+\s+.*\bTasks\b/i.test(lines[i])) {
+      if (!this.isTaskHeading(lines[i])) {
         continue;
       }
 
@@ -1440,7 +1454,6 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
 
       // get tomorrow's content and modify it
       let templateHeadingNotFoundMessage = "";
-      const templateHeadingSelected = templateHeading !== "none";
 
       if (todosTomorrow.length > 0) {
         let dailyNoteContent = await this.app.vault.read(tomorrowNote);
@@ -1455,8 +1468,9 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
           templateHeading
         );
         dailyNoteContent = insertionResult.content;
-        if (templateHeadingSelected && !insertionResult.headingFound) {
-          templateHeadingNotFoundMessage = `Rollover couldn't find '${templateHeading}' in tomorrow's daily note. Rolling todos to end of file.`;
+        if (!insertionResult.headingFound) {
+          templateHeadingNotFoundMessage =
+            "Rollover couldn't find a task heading in tomorrow's daily note. Rolling todos to end of file.";
         }
 
         await this.app.vault.modify(tomorrowNote, dailyNoteContent);

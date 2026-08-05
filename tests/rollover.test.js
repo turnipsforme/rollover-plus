@@ -62,6 +62,86 @@ async function run() {
     ].join("\r\n")
   );
 
+  const possibleTaskHeadings = [
+    "# Tasks",
+    "## task",
+    "### ✅ WORK TASKS •",
+    "#### Personal Task-list:",
+    "##### 📋 tasks for tomorrow",
+    "###### Morning TASKS!!!",
+  ];
+
+  possibleTaskHeadings.forEach((heading) => {
+    const note = [
+      "# Tomorrow",
+      heading,
+      "- [ ]",
+      "## Notes",
+      "- ",
+    ].join("\n");
+    const result = plugin.insertTodosInNote(
+      note,
+      ["- [ ] detected task"],
+      "none"
+    );
+
+    assert.equal(result.headingFound, true, heading);
+    assert.equal(
+      result.content,
+      [
+        "# Tomorrow",
+        heading,
+        "- [ ] detected task",
+        "## Notes",
+        "- ",
+      ].join("\n"),
+      heading
+    );
+  });
+
+  const multipleTaskHeadings = [
+    "# Tomorrow",
+    "## Personal Tasks",
+    "- [ ] personal placeholder",
+    "## Work Tasks",
+    "- [ ] work placeholder",
+  ].join("\n");
+  const preferredHeadingResult = plugin.insertTodosInNote(
+    multipleTaskHeadings,
+    ["- [ ] rolled task"],
+    "## Work Tasks"
+  );
+
+  assert.equal(
+    preferredHeadingResult.content,
+    [
+      "# Tomorrow",
+      "## Personal Tasks",
+      "- [ ] personal placeholder",
+      "## Work Tasks",
+      "- [ ] work placeholder",
+      "- [ ] rolled task",
+    ].join("\n")
+  );
+
+  const firstDetectedHeadingResult = plugin.insertTodosInNote(
+    multipleTaskHeadings,
+    ["- [ ] rolled task"],
+    "### Missing Preferred Heading"
+  );
+
+  assert.equal(
+    firstDetectedHeadingResult.content,
+    [
+      "# Tomorrow",
+      "## Personal Tasks",
+      "- [ ] personal placeholder",
+      "- [ ] rolled task",
+      "## Work Tasks",
+      "- [ ] work placeholder",
+    ].join("\n")
+  );
+
   const today = [
     "# Thu, August 6th, 2026",
     "### ⭐ Tasks:",
