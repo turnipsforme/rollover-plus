@@ -1153,11 +1153,11 @@ const getTodos = ({
 class RolloverToTomorrowPlugin extends obsidian.Plugin {
   async loadSettings() {
     const DEFAULT_SETTINGS = {
-      dailyNoteFolder: "",
-      templateHeading: "none",
-      deleteOnComplete: false,
-      removeEmptyTodos: false,
-      rolloverChildren: false,
+      dailyNoteFolder: "daily-notes",
+      templateHeading: "### ⭐ Tasks:",
+      deleteOnComplete: true,
+      removeEmptyTodos: true,
+      rolloverChildren: true,
       doneStatusMarkers: "xX-",
     };
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -1180,13 +1180,99 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
 
   async getAllUnfinishedTodos(file) {
     const dn = await this.app.vault.read(file);
-    const dnLines = dn.split(/\r?\n|\r|\n/g);
+    const { lines: dnLines } = this.splitNoteContent(dn);
 
     return getTodos({
       lines: dnLines,
       withChildren: this.settings.rolloverChildren,
       doneStatusMarkers: this.settings.doneStatusMarkers,
     });
+  }
+
+  splitNoteContent(content) {
+    const newlineMatch = content.match(/\r\n|\n|\r/);
+    return {
+      lines: content.split(/\r\n|\n|\r/),
+      newline: newlineMatch ? newlineMatch[0] : "\n",
+    };
+  }
+
+  normalizeHeading(heading) {
+    return heading
+      .trim()
+      .replace(/^#{1,}\s+/, "")
+      .replace(/[\uFE0E\uFE0F]/g, "")
+      .replace(/[:\s]+$/, "")
+      .toLocaleLowerCase();
+  }
+
+  findTemplateHeadingIndex(lines, templateHeading) {
+    const selectedHeading = (templateHeading || "").trim();
+    const exactMatchIndex = lines.findIndex(
+      (line) => line.trim() === selectedHeading
+    );
+    if (exactMatchIndex !== -1) {
+      return exactMatchIndex;
+    }
+
+    const normalizedHeading = this.normalizeHeading(selectedHeading);
+    return lines.findIndex(
+      (line) =>
+        /^\s*#{1,}\s+/.test(line) &&
+        this.normalizeHeading(line) === normalizedHeading
+    );
+  }
+
+  removeRolledOverTodos(content, todos) {
+    const { lines, newline } = this.splitNoteContent(content);
+    const remainingCounts = new Map();
+
+    todos.forEach((line) => {
+      remainingCounts.set(line, (remainingCounts.get(line) || 0) + 1);
+    });
+
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      const remaining = remainingCounts.get(line) || 0;
+      if (remaining > 0) {
+        lines.splice(i, 1);
+        remainingCounts.set(line, remaining - 1);
+      }
+    }
+
+    this.removeEmptyTasksHeadings(lines);
+    return lines.join(newline);
+  }
+
+  insertTodosInNote(content, todos, templateHeading) {
+    const { lines, newline } = this.splitNoteContent(content);
+    const templateHeadingSelected = templateHeading !== "none";
+    let headingLineIndex = -1;
+
+    if (templateHeadingSelected) {
+      headingLineIndex = this.findTemplateHeadingIndex(lines, templateHeading);
+    }
+
+    let insertionIndex = lines.length;
+    if (headingLineIndex !== -1) {
+      for (let i = headingLineIndex + 1; i < lines.length; i++) {
+        if (/^\s*#{1,}\s+/.test(lines[i])) {
+          insertionIndex = i;
+          break;
+        }
+      }
+    }
+
+    insertionIndex = this.removeEmptyTodosAndBlankLinesAbove(
+      lines,
+      insertionIndex
+    );
+    lines.splice(insertionIndex, 0, ...todos);
+
+    return {
+      content: lines.join(newline),
+      headingFound: !templateHeadingSelected || headingLineIndex !== -1,
+    };
   }
 
   removeTomorrowMentionFromTask(line) {
@@ -1363,41 +1449,14 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
           oldContent: `${dailyNoteContent}`,
         };
 
-        // If template heading is selected, try to rollover to template heading
-        if (templateHeadingSelected) {
-          const lines = dailyNoteContent.split("\n");
-          const headingLineIndex = lines.findIndex(line => line.trim() === templateHeading.trim());
-          if (headingLineIndex === -1) {
-            templateHeadingNotFoundMessage = `Rollover couldn't find '${templateHeading}' in tomorrow's daily note. Rolling todos to end of file.`;
-          } else {
-            let nextHeadingIndex = lines.length;
-            for (let i = headingLineIndex + 1; i < lines.length; i++) {
-              if (/^#{1,} /.test(lines[i])) {
-                nextHeadingIndex = i;
-                break;
-              }
-            }
-            const insertionIndex = this.removeEmptyTodosAndBlankLinesAbove(
-              lines,
-              nextHeadingIndex
-            );
-            lines.splice(insertionIndex, 0, ...todosTomorrow);
-            dailyNoteContent = lines.join("\n");
-          }
-        }
-
-        // Rollover to bottom of file if no heading found in file, or no heading selected
-        if (
-          !templateHeadingSelected ||
-          templateHeadingNotFoundMessage.length > 0
-        ) {
-          const lines = dailyNoteContent.split("\n");
-          const insertionIndex = this.removeEmptyTodosAndBlankLinesAbove(
-            lines,
-            lines.length
-          );
-          lines.splice(insertionIndex, 0, ...todosTomorrow);
-          dailyNoteContent = lines.join("\n");
+        const insertionResult = this.insertTodosInNote(
+          dailyNoteContent,
+          todosTomorrow,
+          templateHeading
+        );
+        dailyNoteContent = insertionResult.content;
+        if (templateHeadingSelected && !insertionResult.headingFound) {
+          templateHeadingNotFoundMessage = `Rollover couldn't find '${templateHeading}' in tomorrow's daily note. Rolling todos to end of file.`;
         }
 
         await this.app.vault.modify(tomorrowNote, dailyNoteContent);
@@ -1410,17 +1469,10 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
           file: currentDailyNote,
           oldContent: `${currentDailyNoteContent}`,
         };
-        let lines = currentDailyNoteContent.split("\n");
-
-        for (let i = lines.length; i >= 0; i--) {
-          if (todosToday.includes(lines[i])) {
-            lines.splice(i, 1);
-          }
-        }
-
-        this.removeEmptyTasksHeadings(lines);
-
-        const modifiedContent = lines.join("\n");
+        const modifiedContent = this.removeRolledOverTodos(
+          currentDailyNoteContent,
+          todosToday
+        );
         await this.app.vault.modify(currentDailyNote, modifiedContent);
       }
 
