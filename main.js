@@ -814,8 +814,8 @@ class UndoModal extends obsidian.Modal {
     this.plugin = plugin;
   }
 
-  async parseDay(day) {
-    const { file, oldContent } = day;
+  async parseChange(change) {
+    const { file, oldContent } = change;
     let currentContent = await this.plugin.app.vault.read(file);
 
     const oldContentLineCount = oldContent.split('\n').length;
@@ -824,9 +824,9 @@ class UndoModal extends obsidian.Modal {
 
     let s = '';
     if (oldContentLineCount > currentContentLineCount) {
-      s = `- ${file.basename}.${file.extension}: add ${diff} line${diff.length > 1 ? 's':''}.`;
+      s = `- ${file.basename}.${file.extension}: add ${diff} line${diff === 1 ? '' : 's'}.`;
     } else if (oldContentLineCount < currentContentLineCount) {
-      s = `- ${file.basename}.${file.extension}: remove ${diff} line${diff.length > 1 ? 's':''}.`;
+      s = `- ${file.basename}.${file.extension}: remove ${diff} line${diff === 1 ? '' : 's'}.`;
     } else {
       if (oldContent == currentContent) {
         s = `- ${file.basename}.${file.extension}: will not be modified.`;
@@ -839,25 +839,20 @@ class UndoModal extends obsidian.Modal {
   }
 
   async confirmUndo(undoHistoryInstance) {
-    await this.plugin.app.vault.modify(undoHistoryInstance.nextDay.file, undoHistoryInstance.nextDay.oldContent);
-    if (undoHistoryInstance.previousDay.file != undefined) {
-      await this.plugin.app.vault.modify(undoHistoryInstance.previousDay.file, undoHistoryInstance.previousDay.oldContent);
-    }
-    this.plugin.undoHistory = [];
+    await this.plugin.restoreUndoChanges(undoHistoryInstance);
   }
 
   async onOpen() {
     let { contentEl, plugin } = this;
-    contentEl.createEl('h3', { text: 'Undo last rollover to tomorrow' });
-    contentEl.createEl('div', { text: 'A single rollover command can be undone, which will load the state of the two files modified (or 1 if the delete option is toggled off) before the rollover first occurred. Any text you may have added from those file(s) during that time may be deleted.' });
-    contentEl.createEl('div', { text: 'Note that rollover actions can only be undone for up to 2 minutes after the command occurred, and will be removed from history if the app closes.' });
+    contentEl.createEl('h3', { text: 'Undo last rollover' });
+    contentEl.createEl('div', { text: 'This restores every file changed by the last rollover. Any edits made to those files since then will be overwritten.' });
+    contentEl.createEl('div', { text: 'Rollover actions can be undone for up to 2 minutes. Undo history is cleared when Obsidian closes.' });
     contentEl.createEl('h4', { text: 'Changes made with undo:' });
 
     const undoHistoryInstance = plugin.undoHistory[0];
-    let modTextArray = [await this.parseDay(undoHistoryInstance.nextDay)];
-    if (undoHistoryInstance.previousDay.file != undefined) {
-      modTextArray.push(await this.parseDay(undoHistoryInstance.previousDay));
-    }
+    const modTextArray = await Promise.all(
+      undoHistoryInstance.changes.map((change) => this.parseChange(change))
+    );
     modTextArray.forEach(txt => {
       contentEl.createEl('div', { text: txt });
     });
@@ -913,7 +908,7 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
     new obsidian.Setting(this.containerEl)
       .setName("Daily note folder")
       .setDesc(
-        "Optional folder override for tomorrow's daily note. Leave blank to use the folder from Daily Notes or Periodic Notes."
+        "Optional folder override for rollover source and destination notes. Leave blank to use the folder from Daily Notes or Periodic Notes."
       )
       .addText((text) =>
         text
@@ -947,9 +942,9 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
       );
 
     new obsidian.Setting(this.containerEl)
-      .setName("Delete todos from today")
+      .setName("Delete tasks from source note")
       .setDesc(
-        `Once todos are found, they are added to tomorrow's daily note. If successful, they are deleted from today's daily note. Enabling this is destructive and may result in lost data. Keeping this disabled will simply duplicate them from today's note and place them in the appropriate section. Note that currently, duplicate todos will be deleted regardless of what heading they are in, and which heading you choose from above.`
+        `After tasks are safely added to the destination, remove their exact source blocks. When disabled, the bulk today and tomorrow commands copy tasks instead. The current-selection command always moves its selected task.`
       )
       .addToggle((toggle) =>
         toggle
@@ -961,9 +956,9 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
       );
 
     new obsidian.Setting(this.containerEl)
-      .setName("Remove empty todos in rollover")
+      .setName("Remove empty tasks in rollover")
       .setDesc(
-        `If you have empty todos, they will not be rolled over to the next day.`
+        `Skip empty task boxes. If source deletion is enabled, empty boxes are cleaned from the source.`
       )
       .addToggle((toggle) =>
         toggle
@@ -975,9 +970,9 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
       );
 
     new obsidian.Setting(this.containerEl)
-      .setName("Roll over children of todos")
+      .setName("Roll over task children")
       .setDesc(
-        `By default, only the actual todos are rolled over. If you add nested Markdown-elements beneath your todos, these are not rolled over but stay in place, possibly altering the logic of your previous note. This setting allows for also migrating the nested elements.`
+        `Move or copy indented Markdown lines beneath each task together with the parent task.`
       )
       .addToggle((toggle) =>
         toggle
@@ -1017,14 +1012,16 @@ class TodoParser {
   // Boolean that encodes whether nested items should be rolled over
   #withChildren;
 
+  // Reuse one segmenter for the whole parse instead of creating one per task.
+  #segmenter;
+
   // Parse content with segmentation to allow for Unicode grapheme clusters
   #parseIntoChars(content, contentType = "content") {
     // Use Intl.Segmenter to properly split grapheme clusters if available,
     // otherwise fall back to Array.from. The fallback should not trigger in
     // Obsidian since it uses Electron which supports Intl.Segmenter.
-    if (typeof Intl !== "undefined" && Intl.Segmenter) {
-      const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
-      return Array.from(segmenter.segment(content), (s) => s.segment);
+    if (this.#segmenter) {
+      return Array.from(this.#segmenter.segment(content), (s) => s.segment);
     } else {
       // Array.from() splits surrogate pairs correctly but not complex grapheme clusters
       // (e.g., 👨‍👩‍👧‍👦 would be split incorrectly) and fail to match.
@@ -1038,6 +1035,10 @@ class TodoParser {
   constructor(lines, withChildren, doneStatusMarkers) {
     this.#lines = lines;
     this.#withChildren = withChildren;
+    this.#segmenter =
+      typeof Intl !== "undefined" && Intl.Segmenter
+        ? new Intl.Segmenter("en", { granularity: "grapheme" })
+        : null;
     if (doneStatusMarkers) {
       this.doneStatusMarkers = this.#parseIntoChars(
         doneStatusMarkers,
@@ -1049,7 +1050,7 @@ class TodoParser {
   // Returns true if string s is a todo-item
   #isTodo(s) {
     // Extract the checkbox content
-    const match = s.match(/\s*[*+-] \[(.*?)\]/);
+    const match = s.match(/^\s*[*+-] \[(.*?)\]/);
     if (!match) return false;
 
     const checkboxContent = match[1];
@@ -1124,21 +1125,46 @@ class TodoParser {
     return this.#lines[l].search(/\S/);
   }
 
-  // Returns a list of strings that represents all the todos along with there potential children
-  getTodos() {
-    let todos = [];
+  // Returns each unfinished todo with its exact source range and optional children.
+  getTodoBlocks() {
+    const blocks = [];
+    let fence = null;
     for (let l = 0; l < this.#lines.length; l++) {
       const line = this.#lines[l];
+      const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+      if (fenceMatch) {
+        const marker = fenceMatch[1];
+        if (!fence) {
+          fence = { character: marker[0], length: marker.length };
+        } else if (
+          marker[0] === fence.character &&
+          marker.length >= fence.length
+        ) {
+          fence = null;
+        }
+        continue;
+      }
+      if (fence) {
+        continue;
+      }
       if (this.#isTodo(line)) {
-        todos.push(line);
+        let blockLines = [line];
+        let endLine = l;
         if (this.#withChildren && this.#hasChildren(l)) {
           const cs = this.#getChildren(l);
-          todos = [...todos, ...cs];
+          blockLines = [...blockLines, ...cs];
+          endLine += cs.length;
           l += cs.length;
         }
+        blocks.push({ startLine: endLine - blockLines.length + 1, endLine, lines: blockLines });
       }
     }
-    return todos;
+    return blocks;
+  }
+
+  // Returns a flat list for compatibility with the original parser API.
+  getTodos() {
+    return this.getTodoBlocks().flatMap((block) => block.lines);
   }
 }
 
@@ -1152,10 +1178,19 @@ const getTodos = ({
   return todoParser.getTodos();
 };
 
+const getTodoBlocks = ({
+  lines,
+  withChildren = false,
+  doneStatusMarkers = null,
+}) => {
+  const todoParser = new TodoParser(lines, withChildren, doneStatusMarkers);
+  return todoParser.getTodoBlocks();
+};
+
 class RolloverToTomorrowPlugin extends obsidian.Plugin {
   async loadSettings() {
     const DEFAULT_SETTINGS = {
-      dailyNoteFolder: "daily-notes",
+      dailyNoteFolder: "",
       templateHeading: "### ⭐ Tasks:",
       deleteOnComplete: true,
       removeEmptyTodos: true,
@@ -1170,23 +1205,30 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
   }
 
   isDailyNotesEnabled() {
-    const dailyNotesPlugin = this.app.internalPlugins.plugins["daily-notes"];
-    const dailyNotesEnabled = dailyNotesPlugin && dailyNotesPlugin.enabled;
+    const internalPlugins = this.app.internalPlugins;
+    const dailyNotesPlugin =
+      internalPlugins?.getPluginById?.("daily-notes") ||
+      internalPlugins?.plugins?.["daily-notes"];
+    const dailyNotesEnabled = Boolean(dailyNotesPlugin?.enabled);
 
-    const periodicNotesPlugin = this.app.plugins.getPlugin("periodic-notes");
-    const periodicNotesEnabled =
-      periodicNotesPlugin && periodicNotesPlugin.settings?.daily?.enabled;
+    const periodicNotesPlugin = this.app.plugins?.getPlugin?.("periodic-notes");
+    const periodicNotesEnabled = Boolean(
+      periodicNotesPlugin?.settings?.daily?.enabled
+    );
 
     return dailyNotesEnabled || periodicNotesEnabled;
   }
 
   async getAllUnfinishedTodos(file) {
     const dn = await this.app.vault.read(file);
-    const { lines: dnLines } = this.splitNoteContent(dn);
+    return this.getTodoBlocksFromContent(dn).flatMap((block) => block.lines);
+  }
 
-    return getTodos({
-      lines: dnLines,
-      withChildren: this.settings.rolloverChildren,
+  getTodoBlocksFromContent(content, withChildren = this.settings.rolloverChildren) {
+    const { lines } = this.splitNoteContent(content);
+    return getTodoBlocks({
+      lines,
+      withChildren,
       doneStatusMarkers: this.settings.doneStatusMarkers,
     });
   }
@@ -1212,6 +1254,25 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     return (
       /^\s*#{1,}\s+/.test(line) &&
       /\btasks?\b/i.test(this.normalizeHeading(line))
+    );
+  }
+
+  getHeadingLevel(line) {
+    const match = line.match(/^\s*(#{1,})\s+/);
+    return match ? match[1].length : 0;
+  }
+
+  isRolloverHeading(line) {
+    if (this.isTaskHeading(line)) {
+      return true;
+    }
+
+    const selectedHeading = (this.settings.templateHeading || "").trim();
+    return (
+      selectedHeading !== "" &&
+      selectedHeading !== "none" &&
+      this.getHeadingLevel(line) > 0 &&
+      this.normalizeHeading(line) === this.normalizeHeading(selectedHeading)
     );
   }
 
@@ -1260,6 +1321,111 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     return lines.join(newline);
   }
 
+  findContainingHeadingIndex(lines, lineIndex) {
+    for (let i = lineIndex - 1; i >= 0; i--) {
+      if (this.getHeadingLevel(lines[i]) > 0) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  removeTodoBlocksFromContent(content, blocks) {
+    const { lines, newline } = this.splitNoteContent(content);
+    const removedLineIndices = new Set();
+    const touchedHeadingIndices = new Set();
+
+    blocks.forEach((block) => {
+      for (let i = block.startLine; i <= block.endLine; i++) {
+        removedLineIndices.add(i);
+      }
+
+      const headingIndex = this.findContainingHeadingIndex(lines, block.startLine);
+      if (headingIndex !== -1 && this.isRolloverHeading(lines[headingIndex])) {
+        touchedHeadingIndices.add(headingIndex);
+      }
+    });
+
+    const entries = lines
+      .map((text, originalIndex) => ({ text, originalIndex }))
+      .filter((entry) => !removedLineIndices.has(entry.originalIndex));
+
+    this.removeBlankResidueAtBlockSeams(entries, blocks, lines);
+    this.removeEmptyRolloverHeadingEntries(entries, touchedHeadingIndices);
+    return entries.map((entry) => entry.text).join(newline);
+  }
+
+  removeBlankResidueAtBlockSeams(entries, blocks, originalLines) {
+    const isBlank = (entry) => /^\s*$/.test(entry.text);
+    const originalEndsWithNewline =
+      originalLines.length > 1 && originalLines[originalLines.length - 1] === "";
+
+    [...blocks]
+      .sort((a, b) => b.startLine - a.startLine)
+      .forEach((block) => {
+        let rightIndex = entries.findIndex(
+          (entry) => entry.originalIndex > block.endLine
+        );
+        if (rightIndex === -1) {
+          rightIndex = entries.length;
+        }
+
+        let leftRunStart = rightIndex;
+        while (leftRunStart > 0 && isBlank(entries[leftRunStart - 1])) {
+          leftRunStart--;
+        }
+
+        let rightRunEnd = rightIndex;
+        while (rightRunEnd < entries.length && isBlank(entries[rightRunEnd])) {
+          rightRunEnd++;
+        }
+
+        const leftBlanks = entries
+          .slice(leftRunStart, rightIndex)
+          .filter((entry) => entry.originalIndex < block.startLine);
+        const rightBlanks = entries
+          .slice(rightIndex, rightRunEnd)
+          .filter((entry) => entry.originalIndex > block.endLine);
+        const hasContentBefore = leftRunStart > 0;
+        const hasContentAfter = rightRunEnd < entries.length;
+
+        const removeOriginalIndices = new Set();
+        if (!hasContentBefore && !hasContentAfter) {
+          [...leftBlanks, ...rightBlanks].forEach((entry) =>
+            removeOriginalIndices.add(entry.originalIndex)
+          );
+        } else if (!hasContentBefore) {
+          [...leftBlanks, ...rightBlanks].forEach((entry) =>
+            removeOriginalIndices.add(entry.originalIndex)
+          );
+        } else if (!hasContentAfter) {
+          leftBlanks.forEach((entry) =>
+            removeOriginalIndices.add(entry.originalIndex)
+          );
+          const terminalBlank = originalEndsWithNewline
+            ? rightBlanks[rightBlanks.length - 1]
+            : null;
+          rightBlanks.forEach((entry) => {
+            if (entry !== terminalBlank) {
+              removeOriginalIndices.add(entry.originalIndex);
+            }
+          });
+        } else if (leftBlanks.length > 0 && rightBlanks.length > 0) {
+          rightBlanks.forEach((entry) =>
+            removeOriginalIndices.add(entry.originalIndex)
+          );
+        }
+
+        if (removeOriginalIndices.size > 0) {
+          for (let i = entries.length - 1; i >= 0; i--) {
+            if (removeOriginalIndices.has(entries[i].originalIndex)) {
+              entries.splice(i, 1);
+            }
+          }
+        }
+      });
+  }
+
   insertTodosInNote(content, todos, templateHeading) {
     const { lines, newline } = this.splitNoteContent(content);
     const headingLineIndex = this.findTemplateHeadingIndex(
@@ -1293,6 +1459,43 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     return line.replace(/^(\s*[*+-] \[[^\]]*\]\s*)(?:tomorrow|tmrw)(?:\s*[:,-]\s*|\s+)/i, "$1");
   }
 
+  isBareEmptyTodo(line) {
+    return /^\s*[-*+] \[\s*\]\s*$/.test(line);
+  }
+
+  isEffectivelyEmptyTodoBlock(block) {
+    return (
+      this.isBareEmptyTodo(block.lines[0] || "") &&
+      block.lines.slice(1).every((line) => /^\s*$/.test(line))
+    );
+  }
+
+  prepareTodoBlocks(blocks, stripTomorrowMention = false) {
+    const movedBlocks = [];
+    let emptyCount = 0;
+
+    blocks.forEach((block) => {
+      if (this.settings.removeEmptyTodos && this.isEffectivelyEmptyTodoBlock(block)) {
+        emptyCount++;
+        return;
+      }
+
+      movedBlocks.push({
+        ...block,
+        lines: stripTomorrowMention
+          ? block.lines.map((line) => this.removeTomorrowMentionFromTask(line))
+          : [...block.lines],
+      });
+    });
+
+    return {
+      blocks: movedBlocks,
+      lines: movedBlocks.flatMap((block) => block.lines),
+      taskCount: movedBlocks.length,
+      emptyCount,
+    };
+  }
+
   removeEmptyTodosAndBlankLinesAbove(lines, insertionIndex) {
     while (
       insertionIndex > 0 &&
@@ -1306,24 +1509,48 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     return insertionIndex;
   }
 
-  removeEmptyTasksHeadings(lines) {
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (!this.isTaskHeading(lines[i])) {
-        continue;
+  removeEmptyRolloverHeadingEntries(entries, candidateOriginalIndices) {
+    const candidates = Array.from(candidateOriginalIndices).sort((a, b) => b - a);
+
+    candidates.forEach((originalIndex) => {
+      const headingIndex = entries.findIndex(
+        (entry) => entry.originalIndex === originalIndex
+      );
+      if (headingIndex === -1) {
+        return;
       }
 
-      let nextHeadingIndex = lines.length;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (/^\s*#+\s+/.test(lines[j])) {
-          nextHeadingIndex = j;
+      const headingLevel = this.getHeadingLevel(entries[headingIndex].text);
+      let sectionEnd = entries.length;
+      for (let i = headingIndex + 1; i < entries.length; i++) {
+        const level = this.getHeadingLevel(entries[i].text);
+        if (level > 0 && level <= headingLevel) {
+          sectionEnd = i;
           break;
         }
       }
 
-      if (lines.slice(i + 1, nextHeadingIndex).every((line) => /^\s*$/.test(line))) {
-        lines.splice(i, 1);
+      const bodyIsEmpty = entries
+        .slice(headingIndex + 1, sectionEnd)
+        .every(
+          (entry) => /^\s*$/.test(entry.text) || this.isBareEmptyTodo(entry.text)
+        );
+
+      if (bodyIsEmpty) {
+        entries.splice(headingIndex, sectionEnd - headingIndex);
       }
-    }
+    });
+  }
+
+  removeEmptyTasksHeadings(lines) {
+    const entries = lines.map((text, originalIndex) => ({ text, originalIndex }));
+    const candidates = new Set(
+      entries
+        .filter((entry) => this.isRolloverHeading(entry.text))
+        .map((entry) => entry.originalIndex)
+    );
+    this.removeEmptyRolloverHeadingEntries(entries, candidates);
+    lines.splice(0, lines.length, ...entries.map((entry) => entry.text));
   }
 
   getCleanFolder(folder) {
@@ -1340,215 +1567,639 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     return folder;
   }
 
-  async rolloverToTomorrow() {
+  getDailyNoteAtDate(date) {
     const { dailyNoteFolder } = this.settings;
     let { folder, format } = main.getEffectiveDailyNoteSettings(dailyNoteFolder);
     folder = this.getCleanFolder(folder);
+    const notePath = obsidian.normalizePath(
+      `${folder}${folder === "" ? "" : "/"}${date.format(format)}.md`
+    );
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    return file instanceof obsidian.TFile ? file : null;
+  }
 
-    const tomorrow = window.moment().add(1, "day");
-    let tomorrowNote;
-    try {
-      const allDailyNotes = main.getAllDailyNotes(dailyNoteFolder);
-      tomorrowNote = main.getDailyNote(tomorrow, allDailyNotes);
-    } catch (err) {
-      if (!(err instanceof main.DailyNotesFolderMissingError)) {
-        throw err;
+  getAllConfiguredDailyNotes() {
+    const effectiveSettings = main.getEffectiveDailyNoteSettings(
+      this.settings.dailyNoteFolder
+    );
+    const folder = this.getCleanFolder(effectiveSettings.folder);
+    const root =
+      folder === ""
+        ? this.app.vault.getRoot()
+        : this.app.vault.getAbstractFileByPath(obsidian.normalizePath(folder));
+    if (!root) {
+      throw new main.DailyNotesFolderMissingError(
+        "Failed to find daily notes folder"
+      );
+    }
+
+    const files = [];
+    obsidian.Vault.recurseChildren(root, (file) => {
+      if (file instanceof obsidian.TFile && file.extension === "md") {
+        files.push(file);
+      }
+    });
+
+    return files
+      .map((file) => ({
+        file,
+        date: this.getDateFromDailyNote(file, effectiveSettings),
+      }))
+      .filter((entry) => entry.date !== null);
+  }
+
+  getDailyNoteFromCollection(date, dailyNotes) {
+    for (const item of Object.values(dailyNotes)) {
+      const file = item.file || item;
+      const fileDate = item.date || this.getDateFromDailyNote(file);
+      if (fileDate && fileDate.isSame(date, "day")) {
+        return file;
       }
     }
-    if (!tomorrowNote) {
-      tomorrowNote = await main.createOrGetDailyNote(tomorrow, dailyNoteFolder);
+    return null;
+  }
+
+  getDateFromDailyNote(file, effectiveSettings = null) {
+    let { folder, format } =
+      effectiveSettings ||
+      main.getEffectiveDailyNoteSettings(this.settings.dailyNoteFolder);
+    folder = this.getCleanFolder(folder);
+    const prefix = folder === "" ? "" : `${folder}/`;
+    if (!file.path.startsWith(prefix) || !file.path.endsWith(".md")) {
+      return null;
     }
-    if (!tomorrowNote) {
-      new obsidian.Notice(
-        "Rollover To Tomorrow couldn't create tomorrow's daily note.",
-        6000
+
+    const relativePath = file.path.slice(prefix.length, -3);
+    const date = window.moment(relativePath, format, true);
+    return date.isValid() ? date : null;
+  }
+
+  createOrGetDailyNote(date) {
+    return main.createOrGetDailyNote(date, this.settings.dailyNoteFolder);
+  }
+
+  getMostRecentDailyNoteBefore(date, dailyNotes) {
+    let latestFile = null;
+    let latestTime = -Infinity;
+
+    Object.values(dailyNotes).forEach((item) => {
+      const file = item.file || item;
+      const fileDate = item.date || this.getDateFromDailyNote(file);
+      if (!fileDate || !fileDate.isBefore(date, "day")) {
+        return;
+      }
+      const fileTime = fileDate.valueOf();
+      if (fileTime > latestTime) {
+        latestFile = file;
+        latestTime = fileTime;
+      }
+    });
+
+    return latestFile;
+  }
+
+  recordUndo(changes) {
+    if (changes.length === 0) {
+      return;
+    }
+    this.undoHistoryTime = new Date();
+    this.undoHistory = [{ changes }];
+  }
+
+  async restoreUndoChanges(undoHistoryInstance) {
+    for (let i = undoHistoryInstance.changes.length - 1; i >= 0; i--) {
+      const change = undoHistoryInstance.changes[i];
+      await this.app.vault.modify(change.file, change.oldContent);
+    }
+    this.undoHistory = [];
+  }
+
+  async insertIntoDestination(destinationNote, todoLines) {
+    const { vault } = this.app;
+    let oldContent = "";
+    let newContent = "";
+    let headingFound = true;
+    let changed = false;
+
+    const buildContent = (currentContent) => {
+      oldContent = currentContent;
+      const insertion = this.insertTodosInNote(
+        currentContent,
+        todoLines,
+        this.settings.templateHeading
       );
+      newContent = insertion.content;
+      headingFound = insertion.headingFound;
+      changed = newContent !== currentContent;
+      return newContent;
+    };
+
+    if (typeof vault.process === "function") {
+      await vault.process(destinationNote, buildContent);
+    } else {
+      let currentContent = await vault.read(destinationNote);
+      buildContent(currentContent);
+
+      const latestContent = await vault.read(destinationNote);
+      if (latestContent !== currentContent) {
+        currentContent = latestContent;
+        buildContent(currentContent);
+      }
+
+      if (changed) {
+        await vault.modify(destinationNote, newContent);
+      }
+    }
+
+    return { oldContent, newContent, headingFound, changed };
+  }
+
+  async writeSourceSafely(sourceNote, expectedContent, updatedContent) {
+    const { vault } = this.app;
+
+    if (typeof vault.process === "function") {
+      let written = false;
+      await vault.process(sourceNote, (currentContent) => {
+        if (currentContent !== expectedContent) {
+          return currentContent;
+        }
+        written = true;
+        return updatedContent;
+      });
+      return written;
+    }
+
+    const currentContent = await vault.read(sourceNote);
+    if (currentContent !== expectedContent) {
+      return false;
+    }
+    await vault.modify(sourceNote, updatedContent);
+    return true;
+  }
+
+  async applyRollover({
+    sourceNote,
+    destinationNote,
+    sourceContent,
+    sourceBlocks,
+    prepared,
+    forceDeleteSource = false,
+    sourceWriter = null,
+  }) {
+    const changes = [];
+    let headingFound = true;
+    let sourceWriteSkipped = false;
+
+    if (prepared.lines.length > 0) {
+      if (!destinationNote) {
+        throw new Error("A destination note is required for non-empty tasks.");
+      }
+      if (sourceNote.path === destinationNote.path) {
+        throw new Error("The source and destination notes are the same file.");
+      }
+
+      const destinationUpdate = await this.insertIntoDestination(
+        destinationNote,
+        prepared.lines
+      );
+      headingFound = destinationUpdate.headingFound;
+      if (destinationUpdate.changed) {
+        changes.push({
+          file: destinationNote,
+          oldContent: destinationUpdate.oldContent,
+        });
+      }
+    }
+
+    const shouldDeleteSource = forceDeleteSource || this.settings.deleteOnComplete;
+    if (shouldDeleteSource) {
+      const updatedSource = this.removeTodoBlocksFromContent(
+        sourceContent,
+        sourceBlocks
+      );
+      if (updatedSource !== sourceContent) {
+        try {
+          if (sourceWriter) {
+            const written = await sourceWriter(updatedSource);
+            sourceWriteSkipped = written === false;
+          } else {
+            const written = await this.writeSourceSafely(
+              sourceNote,
+              sourceContent,
+              updatedSource
+            );
+            sourceWriteSkipped = written === false;
+          }
+        } catch (error) {
+          this.recordUndo(changes);
+          throw error;
+        }
+
+        if (!sourceWriteSkipped) {
+          changes.push({ file: sourceNote, oldContent: sourceContent });
+        }
+      }
+    }
+
+    this.recordUndo(changes);
+    return {
+      ...prepared,
+      headingFound,
+      sourceDeleted: shouldDeleteSource && !sourceWriteSkipped,
+      sourceWriteSkipped,
+      changed: changes.length > 0,
+    };
+  }
+
+  showRolloverResult(result, destinationLabel) {
+    const parts = [];
+    if (!result.headingFound && result.taskCount > 0) {
+      parts.push(
+        `Rollover+ couldn't find a task heading in ${destinationLabel}. Tasks were added to the end of the note.`
+      );
+    }
+    if (result.taskCount > 0) {
+      parts.push(
+        `${result.taskCount} task${result.taskCount === 1 ? "" : "s"} rolled over to ${destinationLabel}.`
+      );
+    }
+    if (result.emptyCount > 0) {
+      parts.push(
+        `${result.emptyCount} empty task${result.emptyCount === 1 ? "" : "s"} ${
+          result.sourceDeleted ? "removed" : "skipped"
+        }.`
+      );
+    }
+    if (result.sourceWriteSkipped) {
+      parts.push(
+        "The source changed while the destination was being saved, so the source task was kept to avoid data loss."
+      );
+    }
+    if (parts.length > 0) {
+      const message = parts.join("\n");
+      new obsidian.Notice(message, 4000 + message.length * 3);
+    }
+  }
+
+  async runRolloverOperation(name, operation) {
+    if (this.rolloverInProgress) {
+      new obsidian.Notice("Rollover+ is already moving tasks.", 4000);
       return;
     }
 
-    if (!this.isDailyNotesEnabled()) {
+    this.rolloverInProgress = true;
+    try {
+      return await operation();
+    } catch (error) {
+      console.error(`Rollover+: ${name} failed`, error);
       new obsidian.Notice(
-        "Rollover To Tomorrow unable to roll over unfinished todos: Please enable Daily Notes, or Periodic Notes (with daily notes enabled).",
-        10000
+        `Rollover+: ${name} failed. Source tasks were kept unless the destination had already been saved.`,
+        8000
       );
-    } else {
-      const { templateHeading, deleteOnComplete, removeEmptyTodos } =
-        this.settings;
+    } finally {
+      this.rolloverInProgress = false;
+    }
+  }
 
-      let currentDailyNote;
-      try {
-        const allDailyNotes = main.getAllDailyNotes(dailyNoteFolder);
-        currentDailyNote = main.getDailyNote(window.moment(), allDailyNotes);
-      } catch (err) {
-        if (!(err instanceof main.DailyNotesFolderMissingError)) {
-          throw err;
-        }
+  checkDailyNotesEnabled() {
+    if (this.isDailyNotesEnabled()) {
+      return true;
+    }
+    new obsidian.Notice(
+      "Rollover+ needs Daily Notes, or Periodic Notes with daily notes enabled.",
+      10000
+    );
+    return false;
+  }
+
+  async rolloverToTomorrow() {
+    if (!this.checkDailyNotesEnabled()) {
+      return;
+    }
+
+    const now = window.moment();
+    const currentDailyNote = this.getDailyNoteAtDate(now);
+    if (!currentDailyNote) {
+      new obsidian.Notice("Rollover+ couldn't find today's daily note.", 6000);
+      return;
+    }
+
+    const sourceContent = await this.app.vault.read(currentDailyNote);
+    const sourceBlocks = this.getTodoBlocksFromContent(sourceContent);
+    if (sourceBlocks.length === 0) {
+      new obsidian.Notice("Rollover+: No unfinished tasks found in today's note.", 4000);
+      return;
+    }
+
+    const prepared = this.prepareTodoBlocks(sourceBlocks, true);
+    const tomorrow = now.clone().add(1, "day");
+    let tomorrowNote = null;
+    if (prepared.lines.length > 0) {
+      tomorrowNote = this.getDailyNoteAtDate(tomorrow);
+      if (!tomorrowNote) {
+        tomorrowNote = await this.createOrGetDailyNote(tomorrow);
       }
-
-      if (!currentDailyNote) {
-        const activeFile = this.app.workspace.getActiveFile();
-        if (activeFile instanceof obsidian.TFile) {
-          const today = window.moment();
-          const todayFormatted = today.format(format);
-          const expectedCurrentPath = `${folder}${
-            folder == "" ? "" : "/"
-          }${todayFormatted}.${activeFile.extension}`;
-
-          if (activeFile.path === expectedCurrentPath) {
-            currentDailyNote = activeFile;
-          }
-        }
-      }
-
-      if (!currentDailyNote) {
+      if (!tomorrowNote) {
         new obsidian.Notice(
-          "Rollover To Tomorrow couldn't find today's daily note.",
+          "Rollover+ couldn't create tomorrow's daily note. Today's tasks were kept.",
           6000
         );
         return;
       }
+    }
 
-      let todosToday = await this.getAllUnfinishedTodos(currentDailyNote);
+    const result = await this.applyRollover({
+      sourceNote: currentDailyNote,
+      destinationNote: tomorrowNote,
+      sourceContent,
+      sourceBlocks,
+      prepared,
+    });
+    this.showRolloverResult(result, "tomorrow");
+  }
 
-      console.log(
-        `rollover-to-tomorrow: ${todosToday.length} todos found in ${currentDailyNote.basename}.md`
+  async rolloverToToday() {
+    if (!this.checkDailyNotesEnabled()) {
+      return;
+    }
+
+    const today = window.moment();
+    const todayNote = this.getDailyNoteAtDate(today);
+    if (!todayNote) {
+      new obsidian.Notice(
+        "Rollover+ couldn't find today's daily note. Create or open it first, then run this command again.",
+        7000
       );
+      return;
+    }
 
-      if (todosToday.length == 0) {
-        new obsidian.Notice("Rollover To Tomorrow: No unfinished todos found in today's note.", 4000);
+    let allDailyNotes;
+    try {
+      allDailyNotes = this.getAllConfiguredDailyNotes();
+    } catch (error) {
+      if (!(error instanceof main.DailyNotesFolderMissingError)) {
+        throw error;
+      }
+      new obsidian.Notice("Rollover+ couldn't find the daily notes folder.", 6000);
+      return;
+    }
+
+    const previousNote = this.getMostRecentDailyNoteBefore(today, allDailyNotes);
+    if (!previousNote) {
+      new obsidian.Notice("Rollover+: No earlier daily note found.", 4000);
+      return;
+    }
+
+    const sourceContent = await this.app.vault.read(previousNote);
+    const sourceBlocks = this.getTodoBlocksFromContent(sourceContent);
+    if (sourceBlocks.length === 0) {
+      new obsidian.Notice(
+        `Rollover+: No unfinished tasks found in ${previousNote.basename}.md.`,
+        4000
+      );
+      return;
+    }
+
+    const prepared = this.prepareTodoBlocks(sourceBlocks, false);
+    const result = await this.applyRollover({
+      sourceNote: previousNote,
+      destinationNote: todayNote,
+      sourceContent,
+      sourceBlocks,
+      prepared,
+    });
+    this.showRolloverResult(result, "today");
+  }
+
+  getEditorSelectionRange(editor) {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    let endLine = to.line;
+    if ((from.line !== to.line || from.ch !== to.ch) && to.ch === 0) {
+      endLine = Math.max(from.line, to.line - 1);
+    }
+    return { from: { ...from }, to: { ...to }, startLine: from.line, endLine };
+  }
+
+  expandSelectedTaskBlock(lines, taskBlock) {
+    if (!this.settings.rolloverChildren) {
+      return taskBlock;
+    }
+
+    const parentIndent = lines[taskBlock.startLine].search(/\S/);
+    let endLine = taskBlock.startLine;
+    while (endLine + 1 < lines.length) {
+      const nextIndent = lines[endLine + 1].search(/\S/);
+      if (nextIndent <= parentIndent) {
+        break;
+      }
+      endLine++;
+    }
+
+    return {
+      startLine: taskBlock.startLine,
+      endLine,
+      lines: lines.slice(taskBlock.startLine, endLine + 1),
+    };
+  }
+
+  getTodoBlocksInSelection(content, selection) {
+    const { lines } = this.splitNoteContent(content);
+    return this.getTodoBlocksFromContent(content, false)
+      .filter(
+        (block) =>
+          block.startLine >= selection.startLine &&
+          block.startLine <= selection.endLine
+      )
+      .map((block) => this.expandSelectedTaskBlock(lines, block));
+  }
+
+  sameEditorSelection(editor, selection) {
+    const from = editor.getCursor("from");
+    const to = editor.getCursor("to");
+    return (
+      from.line === selection.from.line &&
+      from.ch === selection.from.ch &&
+      to.line === selection.to.line &&
+      to.ch === selection.to.ch
+    );
+  }
+
+  getMinimalEditorLineEdit(before, after) {
+    let startOffset = 0;
+    while (
+      startOffset < before.length &&
+      startOffset < after.length &&
+      before[startOffset] === after[startOffset]
+    ) {
+      startOffset++;
+    }
+
+    let beforeEndOffset = before.length;
+    let afterEndOffset = after.length;
+    while (
+      beforeEndOffset > startOffset &&
+      afterEndOffset > startOffset &&
+      before[beforeEndOffset - 1] === after[afterEndOffset - 1]
+    ) {
+      beforeEndOffset--;
+      afterEndOffset--;
+    }
+
+    return {
+      replacement: after.slice(startOffset, afterEndOffset),
+      from: this.getEditorPositionAtOffset(before, startOffset),
+      to: this.getEditorPositionAtOffset(before, beforeEndOffset),
+    };
+  }
+
+  getEditorPositionAtOffset(content, targetOffset) {
+    let line = 0;
+    let lineStart = 0;
+    let offset = 0;
+
+    while (offset < targetOffset) {
+      if (content[offset] === "\r" && content[offset + 1] === "\n") {
+        if (offset + 2 > targetOffset) {
+          break;
+        }
+        offset += 2;
+        line++;
+        lineStart = offset;
+      } else if (content[offset] === "\n" || content[offset] === "\r") {
+        offset++;
+        line++;
+        lineStart = offset;
+      } else {
+        offset++;
+      }
+    }
+
+    return { line, ch: targetOffset - lineStart };
+  }
+
+  applyEditorContentChange(editor, before, after) {
+    if (typeof editor.replaceRange === "function") {
+      const edit = this.getMinimalEditorLineEdit(before, after);
+      editor.replaceRange(edit.replacement, edit.from, edit.to);
+      return;
+    }
+    editor.setValue(after);
+  }
+
+  async rolloverCurrentSelection(editor, view) {
+    if (!this.checkDailyNotesEnabled()) {
+      return;
+    }
+
+    const sourceNote = view?.file || this.app.workspace.getActiveFile();
+    if (!(sourceNote instanceof obsidian.TFile)) {
+      new obsidian.Notice("Rollover+: Open a Markdown note and select a task first.", 5000);
+      return;
+    }
+
+    const sourceContent = editor.getValue();
+    const selection = this.getEditorSelectionRange(editor);
+    const selectedBlocks = this.getTodoBlocksInSelection(
+      sourceContent,
+      selection
+    );
+
+    if (selectedBlocks.length === 0) {
+      new obsidian.Notice(
+        "Rollover+: Put the cursor on one unfinished Markdown task, or select it.",
+        5000
+      );
+      return;
+    }
+    if (selectedBlocks.length > 1) {
+      new obsidian.Notice("Rollover+: Select one task at a time.", 5000);
+      return;
+    }
+
+    const prepared = this.prepareTodoBlocks(selectedBlocks, true);
+    const tomorrow = window.moment().add(1, "day");
+    let tomorrowNote = null;
+    if (prepared.lines.length > 0) {
+      tomorrowNote = this.getDailyNoteAtDate(tomorrow);
+      if (!tomorrowNote) {
+        tomorrowNote = await this.createOrGetDailyNote(tomorrow);
+      }
+      if (!tomorrowNote) {
+        new obsidian.Notice(
+          "Rollover+ couldn't create tomorrow's daily note. The selected task was kept.",
+          6000
+        );
         return;
       }
-
-      // setup undo history
-      let undoHistoryInstance = {
-        previousDay: {
-          file: undefined,
-          oldContent: "",
-        },
-        nextDay: {
-          file: undefined,
-          oldContent: "",
-        },
-      };
-
-      // Potentially filter todos from today for tomorrow
-      let todosAdded = 0;
-      let emptiesToNotAddToTomorrow = 0;
-      let todosTomorrow = !removeEmptyTodos ? todosToday : [];
-      if (removeEmptyTodos) {
-        todosToday.forEach((line) => {
-          const trimmedLine = (line || "").trim();
-          if (!/^[-*+] \[ {1,2}\]$/.test(trimmedLine)) {
-            todosTomorrow.push(line);
-            todosAdded++;
-          } else {
-            emptiesToNotAddToTomorrow++;
-          }
-        });
-      } else {
-        todosAdded = todosToday.length;
-      }
-      todosTomorrow = todosTomorrow.map((line) =>
-        this.removeTomorrowMentionFromTask(line)
-      );
-
-      // get tomorrow's content and modify it
-      let templateHeadingNotFoundMessage = "";
-
-      if (todosTomorrow.length > 0) {
-        let dailyNoteContent = await this.app.vault.read(tomorrowNote);
-        undoHistoryInstance.nextDay = {
-          file: tomorrowNote,
-          oldContent: `${dailyNoteContent}`,
-        };
-
-        const insertionResult = this.insertTodosInNote(
-          dailyNoteContent,
-          todosTomorrow,
-          templateHeading
+      if (sourceNote.path === tomorrowNote.path) {
+        new obsidian.Notice(
+          "Rollover+: The selected task is already in tomorrow's daily note.",
+          5000
         );
-        dailyNoteContent = insertionResult.content;
-        if (!insertionResult.headingFound) {
-          templateHeadingNotFoundMessage =
-            "Rollover couldn't find a task heading in tomorrow's daily note. Rolling todos to end of file.";
-        }
-
-        await this.app.vault.modify(tomorrowNote, dailyNoteContent);
+        return;
       }
-
-      // if deleteOnComplete, get today's content and modify it
-      if (deleteOnComplete) {
-        let currentDailyNoteContent = await this.app.vault.read(currentDailyNote);
-        undoHistoryInstance.previousDay = {
-          file: currentDailyNote,
-          oldContent: `${currentDailyNoteContent}`,
-        };
-        const modifiedContent = this.removeRolledOverTodos(
-          currentDailyNoteContent,
-          todosToday
-        );
-        await this.app.vault.modify(currentDailyNote, modifiedContent);
-      }
-
-      // Let user know rollover has been successful with X todos
-      const todosAddedString =
-        todosAdded == 0
-          ? ""
-          : `- ${todosAdded} todo${todosAdded > 1 ? "s" : ""} rolled over.`;
-      const emptiesToNotAddToTomorrowString =
-        emptiesToNotAddToTomorrow == 0
-          ? ""
-          : deleteOnComplete
-          ? `- ${emptiesToNotAddToTomorrow} empty todo${
-              emptiesToNotAddToTomorrow > 1 ? "s" : ""
-            } removed.`
-          : "";
-      const part1 =
-        templateHeadingNotFoundMessage.length > 0
-          ? `${templateHeadingNotFoundMessage}`
-          : "";
-      const part2 = `${todosAddedString}${
-        todosAddedString.length > 0 ? " " : ""
-      }`;
-      const part3 = `${emptiesToNotAddToTomorrowString}${
-        emptiesToNotAddToTomorrowString.length > 0 ? " " : ""
-      }`;
-
-      let allParts = [part1, part2, part3];
-      let nonBlankLines = [];
-      allParts.forEach((part) => {
-        if (part.length > 0) {
-          nonBlankLines.push(part);
-        }
-      });
-
-      const message = nonBlankLines.join("\n");
-      if (message.length > 0) {
-        new obsidian.Notice(message, 4000 + message.length * 3);
-      }
-      this.undoHistoryTime = new Date();
-      this.undoHistory = [undoHistoryInstance];
     }
+
+    const result = await this.applyRollover({
+      sourceNote,
+      destinationNote: tomorrowNote,
+      sourceContent,
+      sourceBlocks: selectedBlocks,
+      prepared,
+      forceDeleteSource: true,
+      sourceWriter: async (updatedSource) => {
+        if (
+          editor.getValue() !== sourceContent ||
+          !this.sameEditorSelection(editor, selection)
+        ) {
+          return false;
+        }
+        this.applyEditorContentChange(editor, sourceContent, updatedSource);
+        return true;
+      },
+    });
+    this.showRolloverResult(result, "tomorrow");
   }
 
   async onload() {
     await this.loadSettings();
     this.undoHistory = [];
     this.undoHistoryTime = new Date();
+    this.rolloverInProgress = false;
 
     this.addSettingTab(new RolloverSettingTab(this.app, this));
 
     this.addCommand({
       id: "rollover-to-tomorrow-rollover",
-      name: "Rollover to Tomorrow",
-      callback: () => {
-        this.rolloverToTomorrow();
-      },
+      name: "Rollover to tomorrow",
+      callback: () =>
+        this.runRolloverOperation("Rollover to tomorrow", () =>
+          this.rolloverToTomorrow()
+        ),
+    });
+
+    this.addCommand({
+      id: "rollover-to-tomorrow-rollover-to-today",
+      name: "Rollover to today",
+      callback: () =>
+        this.runRolloverOperation("Rollover to today", () =>
+          this.rolloverToToday()
+        ),
+    });
+
+    this.addCommand({
+      id: "rollover-to-tomorrow-rollover-current-selection",
+      name: "Rollover current selection to tomorrow",
+      editorCallback: (editor, view) =>
+        this.runRolloverOperation("Selection rollover", () =>
+          this.rolloverCurrentSelection(editor, view)
+        ),
     });
 
     this.addCommand({
       id: "rollover-to-tomorrow-undo",
-      name: "Undo last rollover to tomorrow",
+      name: "Undo last rollover",
       checkCallback: (checking) => {
         // no history, don't allow undo
         if (this.undoHistory.length > 0) {
