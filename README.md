@@ -1,12 +1,12 @@
-# Rollover+
+# Rollover Plus
 
-Keep unfinished tasks moving without copying and pasting them between daily notes. Rollover+ gives you three focused commands:
+Keep unfinished tasks moving without copying and pasting them between daily notes. Rollover Plus gives you three focused commands:
 
 - **Rollover to today:** Bring unfinished tasks from your most recent earlier daily note into today's note.
 - **Rollover to tomorrow:** Send every unfinished task in today's note to tomorrow's note.
 - **Rollover current selection to tomorrow:** Send one task from any Markdown note to tomorrow's note.
 
-The plugin uses the folder, filename format, and template from Obsidian's Daily Notes plugin or the daily-note settings in Periodic Notes. An optional folder override is available in Rollover+ settings.
+The plugin uses the folder, filename format, and template from Obsidian's Daily Notes plugin or the daily-note settings in Periodic Notes. An optional folder override is available in Rollover Plus settings.
 
 ## The three main commands
 
@@ -24,7 +24,7 @@ Create today's daily note before running this command. This matches the manual r
 
 ### Send one task to tomorrow
 
-Put the cursor anywhere on one unfinished task, or select part of its line, then run **Rollover current selection to tomorrow**. Rollover+ moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
+Put the cursor anywhere on one unfinished task, or select part of its line, then run **Rollover current selection to tomorrow**. Rollover Plus moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
 
 This command:
 
@@ -42,9 +42,9 @@ Restores every file changed by the last rollover. One undo is kept in memory for
 
 ## Placement and cleanup
 
-Rollover+ prefers the heading selected in settings. If it is missing, the first Markdown heading containing `task` or `tasks` is used, regardless of heading level, capitalization, emoji, or punctuation. If no task heading exists, tasks are added to the end of the destination note.
+Rollover Plus prefers the heading selected in settings. If it is missing, the first Markdown heading containing `task` or `tasks` is used, regardless of heading level, capitalization, emoji, or punctuation. If no task heading exists, tasks are added to the end of the destination note.
 
-An empty task placeholder at the insertion point is replaced. When moving tasks empties a matching source section, Rollover+ removes that affected heading and its blank scaffold. Completed tasks, prose, child headings, and other real content keep the heading in place.
+An empty task placeholder at the insertion point is replaced. When moving tasks empties a matching source section, Rollover Plus removes that affected heading and its blank scaffold. Completed tasks, prose, child headings, and other real content keep the heading in place.
 
 The destination is always saved before source text is removed. If the source write fails or the editor changes during a selection rollover, the source stays intact.
 
@@ -63,8 +63,8 @@ Enable either Obsidian's core Daily Notes plugin or Periodic Notes with daily no
 
 ## Installation note
 
-Rollover+ uses the plugin ID `rollover-plus`, matching its public name and Community Directory URL. Obsidian treats a new plugin ID as a new installation, so settings and hotkeys from an earlier installation need to be set again.
+Rollover Plus uses the plugin ID `rollover-plus`, matching its Community Directory URL. Obsidian treats a new plugin ID as a new installation, so settings and hotkeys from an earlier installation need to be set again.
 
 ## Attribution
 
-Rollover+ is based on [Rollover Daily Todos by Lukas Mölschl](https://github.com/lumoe/obsidian-rollover-daily-todos), originally created by Matthew Sessions. The upstream project is available under the MIT License. See [LICENSE](LICENSE).
+Rollover Plus is based on [Rollover Daily Todos by Lukas Mölschl](https://github.com/lumoe/obsidian-rollover-daily-todos), originally created by Matthew Sessions. The upstream project is available under the MIT License. See [LICENSE](LICENSE).

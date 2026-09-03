@@ -1815,7 +1815,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     const parts = [];
     if (!result.headingFound && result.taskCount > 0) {
       parts.push(
-        `Rollover+ couldn't find a task heading in ${destinationLabel}. Tasks were added to the end of the note.`
+        `Rollover Plus couldn't find a task heading in ${destinationLabel}. Tasks were added to the end of the note.`
       );
     }
     if (result.taskCount > 0) {
@@ -1843,7 +1843,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
   async runRolloverOperation(name, operation) {
     if (this.rolloverInProgress) {
-      new obsidian.Notice("Rollover+ is already moving tasks.", 4000);
+      new obsidian.Notice("Rollover Plus is already moving tasks.", 4000);
       return;
     }
 
@@ -1851,9 +1851,9 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     try {
       return await operation();
     } catch (error) {
-      console.error(`Rollover+: ${name} failed`, error);
+      console.error(`Rollover Plus: ${name} failed`, error);
       new obsidian.Notice(
-        `Rollover+: ${name} failed. Source tasks were kept unless the destination had already been saved.`,
+        `Rollover Plus: ${name} failed. Source tasks were kept unless the destination had already been saved.`,
         8000
       );
     } finally {
@@ -1866,7 +1866,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       return true;
     }
     new obsidian.Notice(
-      "Rollover+ needs Daily Notes, or Periodic Notes with daily notes enabled.",
+      "Rollover Plus needs Daily Notes, or Periodic Notes with daily notes enabled.",
       10000
     );
     return false;
@@ -1880,14 +1880,14 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     const now = window.moment();
     const currentDailyNote = this.getDailyNoteAtDate(now);
     if (!currentDailyNote) {
-      new obsidian.Notice("Rollover+ couldn't find today's daily note.", 6000);
+      new obsidian.Notice("Rollover Plus couldn't find today's daily note.", 6000);
       return;
     }
 
     const sourceContent = await this.app.vault.read(currentDailyNote);
     const sourceBlocks = this.getTodoBlocksFromContent(sourceContent);
     if (sourceBlocks.length === 0) {
-      new obsidian.Notice("Rollover+: No unfinished tasks found in today's note.", 4000);
+      new obsidian.Notice("Rollover Plus: No unfinished tasks found in today's note.", 4000);
       return;
     }
 
@@ -1901,7 +1901,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       }
       if (!tomorrowNote) {
         new obsidian.Notice(
-          "Rollover+ couldn't create tomorrow's daily note. Today's tasks were kept.",
+          "Rollover Plus couldn't create tomorrow's daily note. Today's tasks were kept.",
           6000
         );
         return;
@@ -1927,7 +1927,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     const todayNote = this.getDailyNoteAtDate(today);
     if (!todayNote) {
       new obsidian.Notice(
-        "Rollover+ couldn't find today's daily note. Create or open it first, then run this command again.",
+        "Rollover Plus couldn't find today's daily note. Create or open it first, then run this command again.",
         7000
       );
       return;
@@ -1940,13 +1940,13 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       if (!(error instanceof main.DailyNotesFolderMissingError)) {
         throw error;
       }
-      new obsidian.Notice("Rollover+ couldn't find the daily notes folder.", 6000);
+      new obsidian.Notice("Rollover Plus couldn't find the daily notes folder.", 6000);
       return;
     }
 
     const previousNote = this.getMostRecentDailyNoteBefore(today, allDailyNotes);
     if (!previousNote) {
-      new obsidian.Notice("Rollover+: No earlier daily note found.", 4000);
+      new obsidian.Notice("Rollover Plus: No earlier daily note found.", 4000);
       return;
     }
 
@@ -1954,7 +1954,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     const sourceBlocks = this.getTodoBlocksFromContent(sourceContent);
     if (sourceBlocks.length === 0) {
       new obsidian.Notice(
-        `Rollover+: No unfinished tasks found in ${previousNote.basename}.md.`,
+        `Rollover Plus: No unfinished tasks found in ${previousNote.basename}.md.`,
         4000
       );
       return;
@@ -2094,7 +2094,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
     const sourceNote = view?.file || this.app.workspace.getActiveFile();
     if (!(sourceNote instanceof obsidian.TFile)) {
-      new obsidian.Notice("Rollover+: Open a Markdown note and select a task first.", 5000);
+      new obsidian.Notice("Rollover Plus: Open a Markdown note and select a task first.", 5000);
       return;
     }
 
@@ -2107,13 +2107,13 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
     if (selectedBlocks.length === 0) {
       new obsidian.Notice(
-        "Rollover+: Put the cursor on one unfinished Markdown task, or select it.",
+        "Rollover Plus: Put the cursor on one unfinished Markdown task, or select it.",
         5000
       );
       return;
     }
     if (selectedBlocks.length > 1) {
-      new obsidian.Notice("Rollover+: Select one task at a time.", 5000);
+      new obsidian.Notice("Rollover Plus: Select one task at a time.", 5000);
       return;
     }
 
@@ -2127,14 +2127,14 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       }
       if (!tomorrowNote) {
         new obsidian.Notice(
-          "Rollover+ couldn't create tomorrow's daily note. The selected task was kept.",
+          "Rollover Plus couldn't create tomorrow's daily note. The selected task was kept.",
           6000
         );
         return;
       }
       if (sourceNote.path === tomorrowNote.path) {
         new obsidian.Notice(
-          "Rollover+: The selected task is already in tomorrow's daily note.",
+          "Rollover Plus: The selected task is already in tomorrow's daily note.",
           5000
         );
         return;
