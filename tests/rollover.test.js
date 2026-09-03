@@ -43,11 +43,11 @@ Module._load = function (request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const RolloverToTomorrowPlugin = require("../main.js");
+const RolloverPlusPlugin = require("../main.js");
 Module._load = originalLoad;
 
 async function run() {
-  const plugin = Object.create(RolloverToTomorrowPlugin.prototype);
+  const plugin = Object.create(RolloverPlusPlugin.prototype);
   plugin.loadData = async () => null;
   await plugin.loadSettings();
 
@@ -476,7 +476,7 @@ async function run() {
   };
   plugin.settings.dailyNoteFolder = "";
   const nestedDailyFile = new MockTFile("daily/2026/08/07.md");
-  RolloverToTomorrowPlugin.prototype.getDateFromDailyNote.call(
+  RolloverPlusPlugin.prototype.getDateFromDailyNote.call(
     plugin,
     nestedDailyFile
   );
@@ -491,7 +491,7 @@ async function run() {
     },
   };
   const nestedEntries =
-    RolloverToTomorrowPlugin.prototype.getAllConfiguredDailyNotes.call(plugin);
+    RolloverPlusPlugin.prototype.getAllConfiguredDailyNotes.call(plugin);
   assert.equal(nestedEntries.length, 1);
   assert.equal(nestedEntries[0].file, nestedDailyFile);
   global.window.moment = timeMoment;
@@ -807,7 +807,7 @@ async function run() {
   assert.equal(emptyOnlyResult.emptyCount, 1);
   assert.equal(plugin.undoHistory[0].changes.length, 1);
 
-  const commandPlugin = Object.create(RolloverToTomorrowPlugin.prototype);
+  const commandPlugin = Object.create(RolloverPlusPlugin.prototype);
   commandPlugin.loadData = async () => null;
   commandPlugin.app = {};
   commandPlugin.addSettingTab = () => {};
@@ -818,19 +818,19 @@ async function run() {
     commands.map(({ id, name }) => ({ id, name })),
     [
       {
-        id: "rollover-to-tomorrow-rollover",
+        id: "rollover-tomorrow",
         name: "Rollover to tomorrow",
       },
       {
-        id: "rollover-to-tomorrow-rollover-to-today",
+        id: "rollover-today",
         name: "Rollover to today",
       },
       {
-        id: "rollover-to-tomorrow-rollover-current-selection",
+        id: "send-selection-to-tomorrow",
         name: "Rollover current selection to tomorrow",
       },
       {
-        id: "rollover-to-tomorrow-undo",
+        id: "undo-last-rollover",
         name: "Undo last rollover",
       },
     ]

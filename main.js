@@ -1187,7 +1187,7 @@ const getTodoBlocks = ({
   return todoParser.getTodoBlocks();
 };
 
-class RolloverToTomorrowPlugin extends obsidian.Plugin {
+class RolloverPlusPlugin extends obsidian.Plugin {
   async loadSettings() {
     const DEFAULT_SETTINGS = {
       dailyNoteFolder: "",
@@ -2171,7 +2171,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     this.addSettingTab(new RolloverSettingTab(this.app, this));
 
     this.addCommand({
-      id: "rollover-to-tomorrow-rollover",
+      id: "rollover-tomorrow",
       name: "Rollover to tomorrow",
       callback: () =>
         this.runRolloverOperation("Rollover to tomorrow", () =>
@@ -2180,7 +2180,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     });
 
     this.addCommand({
-      id: "rollover-to-tomorrow-rollover-to-today",
+      id: "rollover-today",
       name: "Rollover to today",
       callback: () =>
         this.runRolloverOperation("Rollover to today", () =>
@@ -2189,7 +2189,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     });
 
     this.addCommand({
-      id: "rollover-to-tomorrow-rollover-current-selection",
+      id: "send-selection-to-tomorrow",
       name: "Rollover current selection to tomorrow",
       editorCallback: (editor, view) =>
         this.runRolloverOperation("Selection rollover", () =>
@@ -2198,7 +2198,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
     });
 
     this.addCommand({
-      id: "rollover-to-tomorrow-undo",
+      id: "undo-last-rollover",
       name: "Undo last rollover",
       checkCallback: (checking) => {
         // no history, don't allow undo
@@ -2221,7 +2221,7 @@ class RolloverToTomorrowPlugin extends obsidian.Plugin {
   }
 }
 
-module.exports = RolloverToTomorrowPlugin;
+module.exports = RolloverPlusPlugin;
 
 
 /* nosourcemap */

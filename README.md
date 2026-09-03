@@ -61,9 +61,9 @@ The destination is always saved before source text is removed. If the source wri
 
 Enable either Obsidian's core Daily Notes plugin or Periodic Notes with daily notes enabled.
 
-## Upgrade notes
+## Installation note
 
-The display name changed from Rollover To Tomorrow to Rollover+. The plugin ID and existing command IDs are unchanged, so upgrades keep the current installation path, saved settings, and hotkeys. No manual migration is needed.
+Rollover+ uses the plugin ID `rollover-plus`, matching its public name and Community Directory URL. Obsidian treats a new plugin ID as a new installation, so settings and hotkeys from an earlier installation need to be set again.
 
 ## Attribution
 
