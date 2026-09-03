@@ -1,10 +1,14 @@
 # Rollover+
 
-Rollover+ moves unfinished Markdown tasks between Obsidian daily notes. It can roll every unfinished task forward to today or tomorrow, or move one task from the editor into tomorrow's note.
+Keep unfinished tasks moving without copying and pasting them between daily notes. Rollover+ gives you three focused commands:
+
+- **Rollover to today:** Bring unfinished tasks from your most recent earlier daily note into today's note.
+- **Rollover to tomorrow:** Send every unfinished task in today's note to tomorrow's note.
+- **Rollover current selection to tomorrow:** Send one task from any Markdown note to tomorrow's note.
 
 The plugin uses the folder, filename format, and template from Obsidian's Daily Notes plugin or the daily-note settings in Periodic Notes. An optional folder override is available in Rollover+ settings.
 
-## Commands
+## The three main commands
 
 ### Rollover to tomorrow
 
@@ -18,9 +22,9 @@ Moves or copies every unfinished task from the closest earlier daily note into t
 
 Create today's daily note before running this command. This matches the manual rollover behavior from the original Rollover Daily Todos plugin.
 
-### Rollover current selection to tomorrow
+### Send one task to tomorrow
 
-Put the cursor anywhere on one unfinished task, or select part of its line, then run this command. Rollover+ moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
+Put the cursor anywhere on one unfinished task, or select part of its line, then run **Rollover current selection to tomorrow**. Rollover+ moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
 
 This command:
 
@@ -29,6 +33,8 @@ This command:
 - includes indented child lines when **Roll over task children** is enabled;
 - always removes the selected source task after the destination is saved, even when bulk rollover is set to copy;
 - keeps the source task if the editor changes while tomorrow's note is being saved.
+
+## A quick safety net
 
 ### Undo last rollover
 
