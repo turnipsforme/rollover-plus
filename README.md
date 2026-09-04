@@ -14,13 +14,15 @@ The plugin uses the folder, filename format, and template from Obsidian's Daily 
 
 Moves or copies every unfinished task from today's daily note into tomorrow's daily note. Tomorrow's note is created through the existing Daily Notes or Periodic Notes pathway only after tasks have been found.
 
-Leading `tomorrow` and `tmrw` labels are removed from the rolled task text.
+Leading `tomorrow` and `tmrw` labels are removed from the rolled task text. If a **Roll over from heading** is selected, only unfinished tasks inside that section are included.
 
 ### Rollover to today
 
 Moves or copies every unfinished task from the closest earlier daily note into today's existing daily note. The source can be yesterday or an older note if there are gaps. Future notes are ignored.
 
 Create today's daily note before running this command. This matches the manual rollover behavior from the original Rollover Daily Todos plugin.
+
+If a **Roll over from heading** is selected, only unfinished tasks inside that section of the earlier note are included.
 
 ### Send one task to tomorrow
 
@@ -42,7 +44,11 @@ Restores every file changed by the last rollover. One undo is kept in memory for
 
 ## Placement and cleanup
 
-Rollover Plus prefers the heading selected in settings. If it is missing, the first Markdown heading containing `task` or `tasks` is used, regardless of heading level, capitalization, emoji, or punctuation. If no task heading exists, tasks are added to the end of the destination note.
+Rollover Plus scans the daily note template configured in Daily Notes or Periodic Notes and offers its Markdown headings in the settings dropdowns.
+
+For the two bulk commands, **Roll over from heading** limits collection to that heading's full section, including child headings. If it is set to **All headings**, unfinished tasks are collected from the whole source note. A selected heading that is missing from a source note does not fall back to tasks elsewhere. The current-selection command is never limited by this setting.
+
+For placement, Rollover Plus prefers **Roll over to heading**. If it is missing, the first Markdown heading containing `task` or `tasks` is used, regardless of heading level, capitalization, emoji, or punctuation. If no task heading exists, tasks are added to the end of the destination note.
 
 An empty task placeholder at the insertion point is replaced. When moving tasks empties a matching source section, Rollover Plus removes that affected heading and its blank scaffold. Completed tasks, prose, child headings, and other real content keep the heading in place.
 
@@ -51,7 +57,8 @@ The destination is always saved before source text is removed. If the source wri
 ## Settings
 
 - **Daily note folder:** Optional folder override. Leave it blank to use Daily Notes or Periodic Notes.
-- **Template heading:** Preferred destination heading, with automatic Task heading detection as fallback.
+- **Roll over from heading:** Optional source section for the two bulk commands. Choose **All headings** to collect unfinished tasks from the whole note.
+- **Roll over to heading:** Preferred destination heading, with automatic Task heading detection as fallback.
 - **Delete tasks from source note:** Move tasks for the two bulk commands. Disable it to copy instead.
 - **Remove empty tasks in rollover:** Skip empty task boxes and clean them from a source being moved.
 - **Roll over task children:** Include indented Markdown beneath each unfinished task.

@@ -1,7 +1,7 @@
 {
   "id": "rollover-plus",
   "name": "Rollover Plus",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "minAppVersion": "0.12.12",
   "description": "Rolls unfinished tasks to today or tomorrow, or moves the current selection to tomorrow. Based on Rollover Daily Todos by lumoe.",
   "author": "Wren",

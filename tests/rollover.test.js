@@ -53,6 +53,7 @@ async function run() {
 
   assert.deepEqual(plugin.settings, {
     dailyNoteFolder: "",
+    sourceHeading: "none",
     templateHeading: "### ⭐ Tasks:",
     deleteOnComplete: true,
     removeEmptyTodos: true,
@@ -122,6 +123,78 @@ async function run() {
       heading
     );
   });
+
+  assert.deepEqual(
+    plugin.extractTemplateHeadings(
+      [
+        "# Daily note",
+        "text with # not a heading",
+        "  ## Work tasks  ",
+        "## Work tasks",
+        "#### Personal",
+        "####### Not a supported heading",
+      ].join("\n")
+    ),
+    ["# Daily note", "## Work tasks", "#### Personal"],
+    "daily template headings are scanned and deduplicated for settings"
+  );
+
+  const scopedSource = [
+    "# Day",
+    "## Personal",
+    "- [ ] leave this here",
+    "## Work tasks",
+    "- [ ] move this",
+    "### Follow-ups",
+    "- [ ] move this child-section task too",
+    "## Notes",
+    "- [ ] not a task for rollover",
+  ].join("\n");
+  plugin.settings.sourceHeading = "## Work tasks";
+  assert.deepEqual(
+    plugin.getRolloverTodoBlocksFromContent(scopedSource, false),
+    [
+      { startLine: 4, endLine: 4, lines: ["- [ ] move this"] },
+      {
+        startLine: 6,
+        endLine: 6,
+        lines: ["- [ ] move this child-section task too"],
+      },
+    ],
+    "a selected source heading limits bulk rollover to its section"
+  );
+  plugin.settings.sourceHeading = "## Missing heading";
+  assert.deepEqual(
+    plugin.getRolloverTodoBlocksFromContent(scopedSource, false),
+    [],
+    "a populated source heading never falls back to tasks elsewhere"
+  );
+  plugin.settings.sourceHeading = "none";
+  assert.equal(
+    plugin.getRolloverTodoBlocksFromContent(scopedSource, false).length,
+    4,
+    "All headings keeps whole-note collection behavior"
+  );
+
+  plugin.settings.sourceHeading = "## Work";
+  const nestedSourceHeading = [
+    "# Day",
+    "## Work",
+    "### Tasks",
+    "- [ ] move nested task",
+    "## Notes",
+    "keep",
+  ].join("\n");
+  const nestedSourceBlocks = plugin.getRolloverTodoBlocksFromContent(
+    nestedSourceHeading,
+    false
+  );
+  assert.equal(
+    plugin.removeTodoBlocksFromContent(nestedSourceHeading, nestedSourceBlocks),
+    ["# Day", "## Notes", "keep"].join("\n"),
+    "an empty selected source section is removed after its nested tasks move"
+  );
+  plugin.settings.sourceHeading = "none";
 
   const multipleTaskHeadings = [
     "# Tomorrow",
@@ -326,7 +399,7 @@ async function run() {
     "a child heading keeps its parent task heading alive"
   );
 
-  plugin.settings.templateHeading = "## Next up";
+  plugin.settings.sourceHeading = "## Next up";
   const customHeading = [
     "# Day",
     "## Next up",
@@ -344,7 +417,7 @@ async function run() {
     ["# Day", "## Notes", "keep"].join("\n"),
     "the configured non-Task heading and empty placeholder are removed"
   );
-  plugin.settings.templateHeading = "### ⭐ Tasks:";
+  plugin.settings.sourceHeading = "none";
 
   const meaningfulEmptyParent = ["- [ ]", "  child detail"].join("\n");
   const meaningfulBlock = plugin.getTodoBlocksFromContent(

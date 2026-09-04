@@ -880,25 +880,43 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
   }
 
   async getTemplateHeadings() {
-    const { template } = main.getDailyNoteSettings();
+    const { template = "" } = main.getDailyNoteSettings() || {};
     if (!template) return [];
 
-    let file = this.app.vault.getAbstractFileByPath(template);
+    const templatePath = obsidian.normalizePath(template.trim());
+    let file = this.app.metadataCache?.getFirstLinkpathDest?.(templatePath, "");
 
-    if (file === null) {
-      file = this.app.vault.getAbstractFileByPath(template + ".md");
+    if (!file) {
+      file = this.app.vault.getAbstractFileByPath(templatePath);
     }
 
-    if (file === null) {
-      // file not available, no template-heading can be returned
+    if (!file && !templatePath.endsWith(".md")) {
+      file = this.app.vault.getAbstractFileByPath(templatePath + ".md");
+    }
+
+    if (!file) {
       return [];
     }
 
     const templateContents = await this.app.vault.read(file);
-    const allHeadings = Array.from(templateContents.matchAll(/#{1,} .*/g)).map(
-      ([heading]) => heading
-    );
-    return allHeadings;
+    return this.plugin.extractTemplateHeadings(templateContents);
+  }
+
+  getHeadingOptions(templateHeadings, selectedHeading, emptyLabel) {
+    const options = { none: emptyLabel };
+    templateHeadings.forEach((heading) => {
+      options[heading] = heading;
+    });
+
+    if (
+      selectedHeading &&
+      selectedHeading !== "none" &&
+      !Object.prototype.hasOwnProperty.call(options, selectedHeading)
+    ) {
+      options[selectedHeading] = `${selectedHeading} (saved setting)`;
+    }
+
+    return options;
   }
 
   async display() {
@@ -921,20 +939,41 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
       );
 
     new obsidian.Setting(this.containerEl)
-      .setName("Template heading")
+      .setName("Roll over from heading")
       .setDesc(
-        "Choose a preferred template heading, or let the plugin automatically find the first heading containing the word task or tasks."
+        "For the two bulk commands, only collect unfinished tasks inside this heading. Choose All headings to collect them from the whole source note."
       )
       .addDropdown((dropdown) =>
         dropdown
-          .addOptions({
-            ...templateHeadings.reduce((acc, heading) => {
-              acc[heading] = heading;
-              return acc;
-            }, {}),
-            none: "Auto-detect Tasks heading",
+          .addOptions(
+            this.getHeadingOptions(
+              templateHeadings,
+              this.plugin.settings.sourceHeading,
+              "All headings"
+            )
+          )
+          .setValue(this.plugin.settings.sourceHeading || "none")
+          .onChange((value) => {
+            this.plugin.settings.sourceHeading = value;
+            this.plugin.saveSettings();
           })
-          .setValue(this.plugin?.settings.templateHeading)
+      );
+
+    new obsidian.Setting(this.containerEl)
+      .setName("Roll over to heading")
+      .setDesc(
+        "Place rolled tasks under this heading. Auto-detect uses the first heading containing the word task or tasks, then falls back to the end of the note."
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions(
+            this.getHeadingOptions(
+              templateHeadings,
+              this.plugin.settings.templateHeading,
+              "Auto-detect Tasks heading"
+            )
+          )
+          .setValue(this.plugin.settings.templateHeading || "none")
           .onChange((value) => {
             this.plugin.settings.templateHeading = value;
             this.plugin.saveSettings();
@@ -1191,6 +1230,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
   async loadSettings() {
     const DEFAULT_SETTINGS = {
       dailyNoteFolder: "",
+      sourceHeading: "none",
       templateHeading: "### ⭐ Tasks:",
       deleteOnComplete: true,
       removeEmptyTodos: true,
@@ -1221,7 +1261,9 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
   async getAllUnfinishedTodos(file) {
     const dn = await this.app.vault.read(file);
-    return this.getTodoBlocksFromContent(dn).flatMap((block) => block.lines);
+    return this.getRolloverTodoBlocksFromContent(dn).flatMap(
+      (block) => block.lines
+    );
   }
 
   getTodoBlocksFromContent(content, withChildren = this.settings.rolloverChildren) {
@@ -1231,6 +1273,32 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       withChildren,
       doneStatusMarkers: this.settings.doneStatusMarkers,
     });
+  }
+
+  getRolloverTodoBlocksFromContent(
+    content,
+    withChildren = this.settings.rolloverChildren
+  ) {
+    const selectedHeading = (this.settings.sourceHeading || "").trim();
+    if (!selectedHeading || selectedHeading === "none") {
+      return this.getTodoBlocksFromContent(content, withChildren);
+    }
+
+    const { lines } = this.splitNoteContent(content);
+    const section = this.getHeadingSectionRange(lines, selectedHeading);
+    if (!section) {
+      return [];
+    }
+
+    return getTodoBlocks({
+      lines: lines.slice(section.startLine, section.endLine),
+      withChildren,
+      doneStatusMarkers: this.settings.doneStatusMarkers,
+    }).map((block) => ({
+      ...block,
+      startLine: block.startLine + section.startLine,
+      endLine: block.endLine + section.startLine,
+    }));
   }
 
   splitNoteContent(content) {
@@ -1262,38 +1330,91 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     return match ? match[1].length : 0;
   }
 
+  extractTemplateHeadings(content) {
+    const headings = [];
+    const seen = new Set();
+    content.split(/\r\n|\n|\r/).forEach((line) => {
+      const match = line.match(/^\s*(#{1,6}\s+\S.*?\s*)$/);
+      if (!match) {
+        return;
+      }
+
+      const heading = match[1].trim();
+      if (!seen.has(heading)) {
+        seen.add(heading);
+        headings.push(heading);
+      }
+    });
+    return headings;
+  }
+
+  findSelectedHeadingIndex(lines, selectedHeading) {
+    const heading = (selectedHeading || "").trim();
+    if (!heading || heading === "none") {
+      return -1;
+    }
+
+    const exactMatchIndex = lines.findIndex((line) => line.trim() === heading);
+    if (exactMatchIndex !== -1) {
+      return exactMatchIndex;
+    }
+
+    const normalizedHeading = this.normalizeHeading(heading);
+    return lines.findIndex(
+      (line) =>
+        this.getHeadingLevel(line) > 0 &&
+        this.normalizeHeading(line) === normalizedHeading
+    );
+  }
+
+  getHeadingSectionRange(lines, selectedHeading) {
+    const headingIndex = this.findSelectedHeadingIndex(lines, selectedHeading);
+    if (headingIndex === -1) {
+      return null;
+    }
+
+    const headingLevel = this.getHeadingLevel(lines[headingIndex]);
+    let endLine = lines.length;
+    for (let i = headingIndex + 1; i < lines.length; i++) {
+      const level = this.getHeadingLevel(lines[i]);
+      if (level > 0 && level <= headingLevel) {
+        endLine = i;
+        break;
+      }
+    }
+
+    return { headingIndex, startLine: headingIndex + 1, endLine };
+  }
+
   isRolloverHeading(line) {
     if (this.isTaskHeading(line)) {
       return true;
     }
 
-    const selectedHeading = (this.settings.templateHeading || "").trim();
-    return (
-      selectedHeading !== "" &&
-      selectedHeading !== "none" &&
-      this.getHeadingLevel(line) > 0 &&
-      this.normalizeHeading(line) === this.normalizeHeading(selectedHeading)
-    );
+    const selectedHeadings = [
+      this.settings.templateHeading,
+      this.settings.sourceHeading,
+    ];
+    return selectedHeadings.some((selectedHeading) => {
+      const heading = (selectedHeading || "").trim();
+      return (
+        heading !== "" &&
+        heading !== "none" &&
+        this.getHeadingLevel(line) > 0 &&
+        this.normalizeHeading(line) === this.normalizeHeading(heading)
+      );
+    });
   }
 
   findTemplateHeadingIndex(lines, templateHeading) {
     const selectedHeading = (templateHeading || "").trim();
     if (selectedHeading && selectedHeading !== "none") {
-      const exactMatchIndex = lines.findIndex(
-        (line) => line.trim() === selectedHeading
+      const selectedHeadingIndex = this.findSelectedHeadingIndex(
+        lines,
+        selectedHeading
       );
-      if (exactMatchIndex !== -1) {
-        return exactMatchIndex;
-      }
-
-      const normalizedHeading = this.normalizeHeading(selectedHeading);
-      const normalizedMatchIndex = lines.findIndex(
-        (line) =>
-          /^\s*#{1,}\s+/.test(line) &&
-          this.normalizeHeading(line) === normalizedHeading
-      );
-      if (normalizedMatchIndex !== -1) {
-        return normalizedMatchIndex;
+      if (selectedHeadingIndex !== -1) {
+        return selectedHeadingIndex;
       }
     }
 
@@ -1345,6 +1466,21 @@ class RolloverPlusPlugin extends obsidian.Plugin {
         touchedHeadingIndices.add(headingIndex);
       }
     });
+
+    const sourceSection = this.getHeadingSectionRange(
+      lines,
+      this.settings.sourceHeading
+    );
+    if (
+      sourceSection &&
+      blocks.some(
+        (block) =>
+          block.startLine >= sourceSection.startLine &&
+          block.endLine < sourceSection.endLine
+      )
+    ) {
+      touchedHeadingIndices.add(sourceSection.headingIndex);
+    }
 
     const entries = lines
       .map((text, originalIndex) => ({ text, originalIndex }))
@@ -1885,7 +2021,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     }
 
     const sourceContent = await this.app.vault.read(currentDailyNote);
-    const sourceBlocks = this.getTodoBlocksFromContent(sourceContent);
+    const sourceBlocks = this.getRolloverTodoBlocksFromContent(sourceContent);
     if (sourceBlocks.length === 0) {
       new obsidian.Notice("Rollover Plus: No unfinished tasks found in today's note.", 4000);
       return;
@@ -1951,7 +2087,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     }
 
     const sourceContent = await this.app.vault.read(previousNote);
-    const sourceBlocks = this.getTodoBlocksFromContent(sourceContent);
+    const sourceBlocks = this.getRolloverTodoBlocksFromContent(sourceContent);
     if (sourceBlocks.length === 0) {
       new obsidian.Notice(
         `Rollover Plus: No unfinished tasks found in ${previousNote.basename}.md.`,

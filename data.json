@@ -1,5 +1,6 @@
 {
   "dailyNoteFolder": "daily-notes",
+  "sourceHeading": "none",
   "templateHeading": "### ⭐ Tasks:",
   "deleteOnComplete": true,
   "removeEmptyTodos": true,
