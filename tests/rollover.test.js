@@ -17,6 +17,7 @@ const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
   if (request === "obsidian") {
     return {
+      moment: (...args) => global.window.moment(...args),
       Modal: class {},
       Notice: class {
         constructor(message) {
@@ -53,6 +54,7 @@ async function run() {
 
   assert.deepEqual(plugin.settings, {
     dailyNoteFolder: "",
+    rolloverToTodaySource: "previous-note",
     sourceHeading: "none",
     templateHeading: "### ⭐ Tasks:",
     deleteOnComplete: true,
@@ -249,7 +251,7 @@ async function run() {
   ].join("\r\n");
 
   assert.equal(
-    plugin.removeRolledOverTodos(today, ["- [ ] task task"]),
+    plugin.removeTodoBlocksFromContent(today, plugin.getTodoBlocksFromContent(today)),
     [
       "# Thu, August 6th, 2026",
       "### ⭐ Tasks:",
@@ -510,11 +512,11 @@ async function run() {
   futureFile.testDate = makeDate(10);
   plugin.getDateFromDailyNote = (file) => file.testDate;
   assert.equal(
-    plugin.getMostRecentDailyNoteBefore(makeDate(8), {
+    plugin.getRecentDailyNotesBefore(makeDate(8), {
       older: olderFile,
       closest: closestFile,
       future: futureFile,
-    }),
+    })[0],
     closestFile,
     "rollover to today uses the closest strictly earlier note"
   );
@@ -533,7 +535,7 @@ async function run() {
 
   const timeMoment = global.window.moment;
   let nestedParseArguments = null;
-  global.window.app = {
+  plugin.app = {
     plugins: { getPlugin: () => null },
     internalPlugins: {
       getPluginById: () => ({
@@ -555,6 +557,7 @@ async function run() {
   );
   assert.deepEqual(nestedParseArguments, ["2026/08/07", "YYYY/MM/DD", true]);
   plugin.app = {
+    ...plugin.app,
     vault: {
       getRoot: () => ({ children: [] }),
       getAbstractFileByPath: (path) => {
@@ -563,6 +566,7 @@ async function run() {
       },
     },
   };
+  delete plugin.getDateFromDailyNote;
   const nestedEntries =
     RolloverPlusPlugin.prototype.getAllConfiguredDailyNotes.call(plugin);
   assert.equal(nestedEntries.length, 1);
@@ -579,8 +583,7 @@ async function run() {
   plugin.checkDailyNotesEnabled = () => true;
   plugin.getDailyNoteAtDate = () => todayDailyFile;
   plugin.getAllConfiguredDailyNotes = () => ({ today: todayDailyFile });
-  plugin.getDailyNoteFromCollection = () => todayDailyFile;
-  plugin.getMostRecentDailyNoteBefore = () => previousDailyFile;
+  plugin.getRecentDailyNotesBefore = () => [previousDailyFile];
   plugin.app = {
     vault: {
       read: async (file) => noteContents.get(file.path),
@@ -897,6 +900,10 @@ async function run() {
       {
         id: "rollover-today",
         name: "Rollover to today",
+      },
+      {
+        id: "rollover-past-week",
+        name: "Rollover to-dos from the past week",
       },
       {
         id: "send-selection-to-tomorrow",

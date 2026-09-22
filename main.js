@@ -1,812 +1,108 @@
-'use strict';
+"use strict";
 
-var obsidian = require('obsidian');
+const obsidian = require("obsidian");
 
-function _interopDefaultLegacy (e) { return e && typeof e === 'object' && 'default' in e ? e : { 'default': e }; }
-
-var obsidian__default = /*#__PURE__*/_interopDefaultLegacy(obsidian);
-
-function createCommonjsModule(fn, basedir, module) {
-	return module = {
-		path: basedir,
-		exports: {},
-		require: function (path, base) {
-			return commonjsRequire(path, (base === undefined || base === null) ? module.path : base);
-		}
-	}, fn(module, module.exports), module.exports;
-}
-
-function commonjsRequire () {
-	throw new Error('Dynamic requires are not currently supported by @rollup/plugin-commonjs');
+// Daily Notes and Periodic Notes expose settings through their plugin instances.
+function getDailyNoteSettings(app) {
+  const periodic = app.plugins?.getPlugin?.("periodic-notes");
+  const options = periodic?.settings?.daily?.enabled
+    ? periodic.settings.daily
+    : app.internalPlugins?.getPluginById?.("daily-notes")?.instance?.options;
+  return {
+    format: options?.format || "YYYY-MM-DD",
+    folder: options?.folder?.trim() || "",
+    template: options?.template?.trim() || "",
+  };
 }
 
-var main = createCommonjsModule(function (module, exports) {
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-
-
-const DEFAULT_DAILY_NOTE_FORMAT = "YYYY-MM-DD";
-const DEFAULT_WEEKLY_NOTE_FORMAT = "gggg-[W]ww";
-const DEFAULT_MONTHLY_NOTE_FORMAT = "YYYY-MM";
-const DEFAULT_QUARTERLY_NOTE_FORMAT = "YYYY-[Q]Q";
-const DEFAULT_YEARLY_NOTE_FORMAT = "YYYY";
-
-function shouldUsePeriodicNotesSettings(periodicity) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodicNotes = window.app.plugins.getPlugin("periodic-notes");
-    return periodicNotes && periodicNotes.settings?.[periodicity]?.enabled;
-}
-/**
- * Read the user settings for the `daily-notes` plugin
- * to keep behavior of creating a new note in-sync.
- */
-function getDailyNoteSettings() {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { internalPlugins, plugins } = window.app;
-        if (shouldUsePeriodicNotesSettings("daily")) {
-            const { format, folder, template } = plugins.getPlugin("periodic-notes")?.settings?.daily || {};
-            return {
-                format: format || DEFAULT_DAILY_NOTE_FORMAT,
-                folder: folder?.trim() || "",
-                template: template?.trim() || "",
-            };
-        }
-        const { folder, format, template } = internalPlugins.getPluginById("daily-notes")?.instance?.options || {};
-        return {
-            format: format || DEFAULT_DAILY_NOTE_FORMAT,
-            folder: folder?.trim() || "",
-            template: template?.trim() || "",
-        };
-    }
-    catch (err) {
-        console.info("No custom daily note settings found!", err);
-    }
-}
-function getEffectiveDailyNoteSettings(overrideFolder = "") {
-    const settings = getDailyNoteSettings() || {
-        format: DEFAULT_DAILY_NOTE_FORMAT,
-        folder: "",
-        template: "",
-    };
-    const normalizedOverrideFolder = overrideFolder?.trim() || "";
-    if (!normalizedOverrideFolder) {
-        return settings;
-    }
-    return {
-        ...settings,
-        folder: normalizedOverrideFolder,
-    };
-}
-/**
- * Read the user settings for the `weekly-notes` plugin
- * to keep behavior of creating a new note in-sync.
- */
-function getWeeklyNoteSettings() {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pluginManager = window.app.plugins;
-        const calendarSettings = pluginManager.getPlugin("calendar")?.options;
-        const periodicNotesSettings = pluginManager.getPlugin("periodic-notes")?.settings?.weekly;
-        if (shouldUsePeriodicNotesSettings("weekly")) {
-            return {
-                format: periodicNotesSettings.format || DEFAULT_WEEKLY_NOTE_FORMAT,
-                folder: periodicNotesSettings.folder?.trim() || "",
-                template: periodicNotesSettings.template?.trim() || "",
-            };
-        }
-        const settings = calendarSettings || {};
-        return {
-            format: settings.weeklyNoteFormat || DEFAULT_WEEKLY_NOTE_FORMAT,
-            folder: settings.weeklyNoteFolder?.trim() || "",
-            template: settings.weeklyNoteTemplate?.trim() || "",
-        };
-    }
-    catch (err) {
-        console.info("No custom weekly note settings found!", err);
-    }
-}
-/**
- * Read the user settings for the `periodic-notes` plugin
- * to keep behavior of creating a new note in-sync.
- */
-function getMonthlyNoteSettings() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pluginManager = window.app.plugins;
-    try {
-        const settings = (shouldUsePeriodicNotesSettings("monthly") &&
-            pluginManager.getPlugin("periodic-notes")?.settings?.monthly) ||
-            {};
-        return {
-            format: settings.format || DEFAULT_MONTHLY_NOTE_FORMAT,
-            folder: settings.folder?.trim() || "",
-            template: settings.template?.trim() || "",
-        };
-    }
-    catch (err) {
-        console.info("No custom monthly note settings found!", err);
-    }
-}
-/**
- * Read the user settings for the `periodic-notes` plugin
- * to keep behavior of creating a new note in-sync.
- */
-function getQuarterlyNoteSettings() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pluginManager = window.app.plugins;
-    try {
-        const settings = (shouldUsePeriodicNotesSettings("quarterly") &&
-            pluginManager.getPlugin("periodic-notes")?.settings?.quarterly) ||
-            {};
-        return {
-            format: settings.format || DEFAULT_QUARTERLY_NOTE_FORMAT,
-            folder: settings.folder?.trim() || "",
-            template: settings.template?.trim() || "",
-        };
-    }
-    catch (err) {
-        console.info("No custom quarterly note settings found!", err);
-    }
-}
-/**
- * Read the user settings for the `periodic-notes` plugin
- * to keep behavior of creating a new note in-sync.
- */
-function getYearlyNoteSettings() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pluginManager = window.app.plugins;
-    try {
-        const settings = (shouldUsePeriodicNotesSettings("yearly") &&
-            pluginManager.getPlugin("periodic-notes")?.settings?.yearly) ||
-            {};
-        return {
-            format: settings.format || DEFAULT_YEARLY_NOTE_FORMAT,
-            folder: settings.folder?.trim() || "",
-            template: settings.template?.trim() || "",
-        };
-    }
-    catch (err) {
-        console.info("No custom yearly note settings found!", err);
-    }
+function getEffectiveDailyNoteSettings(app, overrideFolder = "") {
+  const settings = getDailyNoteSettings(app);
+  return { ...settings, folder: overrideFolder.trim() || settings.folder };
 }
 
-// Credit: @creationix/path.js
-function join(...partSegments) {
-    // Split the inputs into a list of path commands.
-    let parts = [];
-    for (let i = 0, l = partSegments.length; i < l; i++) {
-        parts = parts.concat(partSegments[i].split("/"));
-    }
-    // Interpret the path commands to get the new resolved path.
-    const newParts = [];
-    for (let i = 0, l = parts.length; i < l; i++) {
-        const part = parts[i];
-        // Remove leading and trailing slashes
-        // Also remove "." segments
-        if (!part || part === ".")
-            continue;
-        // Push new path segments.
-        else
-            newParts.push(part);
-    }
-    // Preserve the initial slash if there was one.
-    if (parts[0] === "")
-        newParts.unshift("");
-    // Turn back into a single string path.
-    return newParts.join("/");
-}
-function basename(fullPath) {
-    let base = fullPath.substring(fullPath.lastIndexOf("/") + 1);
-    if (base.lastIndexOf(".") != -1)
-        base = base.substring(0, base.lastIndexOf("."));
-    return base;
-}
-async function ensureFolderExists(path) {
-    const dirs = path.replace(/\\/g, "/").split("/");
-    dirs.pop(); // remove basename
-    if (dirs.length) {
-        const dir = join(...dirs);
-        if (!window.app.vault.getAbstractFileByPath(dir)) {
-            await window.app.vault.createFolder(dir);
-        }
-    }
-}
-async function getNotePath(directory, filename) {
-    if (!filename.endsWith(".md")) {
-        filename += ".md";
-    }
-    const path = obsidian__default["default"].normalizePath(join(directory, filename));
-    await ensureFolderExists(path);
-    return path;
-}
-async function getTemplateInfo(template) {
-    const { metadataCache, vault } = window.app;
-    const templatePath = obsidian__default["default"].normalizePath(template);
-    if (templatePath === "/") {
-        return Promise.resolve(["", null]);
-    }
-    try {
-        const templateFile = metadataCache.getFirstLinkpathDest(templatePath, "");
-        const contents = await vault.cachedRead(templateFile);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const IFoldInfo = window.app.foldManager.load(templateFile);
-        return [contents, IFoldInfo];
-    }
-    catch (err) {
-        console.error(`Failed to read the daily note template '${templatePath}'`, err);
-        new obsidian__default["default"].Notice("Failed to read the daily note template");
-        return ["", null];
-    }
+async function getNotePath(app, folder, filename) {
+  const path = obsidian.normalizePath(`${folder}/${filename}.md`);
+  const slash = path.lastIndexOf("/");
+  const parent = slash === -1 ? "" : path.slice(0, slash);
+  if (parent && !app.vault.getAbstractFileByPath(parent)) {
+    await app.vault.createFolder(parent);
+  }
+  return path;
 }
 
-/**
- * dateUID is a way of weekly identifying daily/weekly/monthly notes.
- * They are prefixed with the granularity to avoid ambiguity.
- */
-function getDateUID(date, granularity = "day") {
-    const ts = date.clone().startOf(granularity).format();
-    return `${granularity}-${ts}`;
-}
-function removeEscapedCharacters(format) {
-    return format.replace(/\[[^\]]*\]/g, ""); // remove everything within brackets
-}
-/**
- * XXX: When parsing dates that contain both week numbers and months,
- * Moment choses to ignore the week numbers. For the week dateUID, we
- * want the opposite behavior. Strip the MMM from the format to patch.
- */
-function isFormatAmbiguous(format, granularity) {
-    if (granularity === "week") {
-        const cleanFormat = removeEscapedCharacters(format);
-        return (/w{1,2}/i.test(cleanFormat) &&
-            (/M{1,4}/.test(cleanFormat) || /D{1,4}/.test(cleanFormat)));
-    }
-    return false;
-}
-function getDateFromFile(file, granularity) {
-    return getDateFromFilename(file.basename, granularity);
-}
-function getDateFromPath(path, granularity) {
-    return getDateFromFilename(basename(path), granularity);
-}
-function getDateFromFilename(filename, granularity) {
-    const getSettings = {
-        day: getDailyNoteSettings,
-        week: getWeeklyNoteSettings,
-        month: getMonthlyNoteSettings,
-        quarter: getQuarterlyNoteSettings,
-        year: getYearlyNoteSettings,
-    };
-    const format = getSettings[granularity]().format.split("/").pop();
-    const noteDate = window.moment(filename, format, true);
-    if (!noteDate.isValid()) {
-        return null;
-    }
-    if (isFormatAmbiguous(format, granularity)) {
-        if (granularity === "week") {
-            const cleanFormat = removeEscapedCharacters(format);
-            if (/w{1,2}/i.test(cleanFormat)) {
-                return window.moment(filename, 
-                // If format contains week, remove day & month formatting
-                format.replace(/M{1,4}/g, "").replace(/D{1,4}/g, ""), false);
-            }
-        }
-    }
-    return noteDate;
+async function getTemplateContents(app, template) {
+  if (!template) return "";
+  const file = app.metadataCache.getFirstLinkpathDest(template, "");
+  if (!(file instanceof obsidian.TFile)) {
+    throw new Error(`Daily note template not found: ${template}`);
+  }
+  return app.vault.cachedRead(file);
 }
 
-class DailyNotesFolderMissingError extends Error {
-}
-/**
- * This function mimics the behavior of the daily-notes plugin
- * so it will replace {{date}}, {{title}}, and {{time}} with the
- * formatted timestamp.
- *
- * Note: it has an added bonus that it's not 'today' specific.
- */
-async function createDailyNote(date, overrideFolder = "") {
-    const app = window.app;
-    const { vault } = app;
-    const moment = window.moment;
-    const { template, format, folder } = getEffectiveDailyNoteSettings(overrideFolder);
-    const [templateContents, IFoldInfo] = await getTemplateInfo(template);
-    const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
-    try {
-        const createdFile = await vault.create(normalizedPath, templateContents
-            .replace(/{{\s*date\s*}}/gi, filename)
-            .replace(/{{\s*time\s*}}/gi, moment().format("HH:mm"))
-            .replace(/{{\s*title\s*}}/gi, filename)
-            .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
-            const now = moment();
-            const currentDate = date.clone().set({
-                hour: now.get("hour"),
-                minute: now.get("minute"),
-                second: now.get("second"),
-            });
-            if (calc) {
-                currentDate.add(parseInt(timeDelta, 10), unit);
-            }
-            if (momentFormat) {
-                return currentDate.format(momentFormat.substring(1).trim());
-            }
-            return currentDate.format(format);
-        })
-            .replace(/{{\s*yesterday\s*}}/gi, date.clone().subtract(1, "day").format(format))
-            .replace(/{{\s*tomorrow\s*}}/gi, date.clone().add(1, "d").format(format)));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        app.foldManager.save(createdFile, IFoldInfo);
-        return createdFile;
-    }
-    catch (err) {
-        console.error(`Failed to create file: '${normalizedPath}'`, err);
-        new obsidian__default["default"].Notice("Unable to create new file.");
-    }
-}
-function getDailyNote(date, dailyNotes) {
-    return dailyNotes[getDateUID(date, "day")] ?? null;
-}
-function getAllDailyNotes(overrideFolder = "") {
-    /**
-     * Find all daily notes in the daily note folder
-     */
-    const { vault } = window.app;
-    const { folder } = getEffectiveDailyNoteSettings(overrideFolder);
-    const dailyNotesFolder = vault.getAbstractFileByPath(obsidian__default["default"].normalizePath(folder));
-    if (!dailyNotesFolder) {
-        throw new DailyNotesFolderMissingError("Failed to find daily notes folder");
-    }
-    const dailyNotes = {};
-    obsidian__default["default"].Vault.recurseChildren(dailyNotesFolder, (note) => {
-        if (note instanceof obsidian__default["default"].TFile) {
-            const date = getDateFromFile(note, "day");
-            if (date) {
-                const dateString = getDateUID(date, "day");
-                dailyNotes[dateString] = note;
-            }
-        }
-    });
-    return dailyNotes;
-}
-async function createOrGetDailyNote(date, overrideFolder = "") {
-    const app = window.app;
-    const settings = getEffectiveDailyNoteSettings(overrideFolder);
-    const filename = date.format(settings.format);
-    const normalizedPath = await getNotePath(settings.folder, filename);
-    const existingFile = app.vault.getAbstractFileByPath(normalizedPath);
-    if (existingFile instanceof obsidian__default["default"].TFile) {
-        return existingFile;
-    }
-    if (!overrideFolder) {
-        try {
-            const dailyNotesPlugin = app.internalPlugins?.getPluginById?.("daily-notes")?.instance;
-            if (dailyNotesPlugin?.createDailyNote) {
-                const nativeFile = await dailyNotesPlugin.createDailyNote(date.clone());
-                if (nativeFile) {
-                    return nativeFile;
-                }
-            }
-        }
-        catch (err) {
-            console.info("Unable to create daily note with native daily-notes plugin, falling back.", err);
-        }
-        try {
-            const periodicNotesPlugin = app.plugins.getPlugin("periodic-notes");
-            if (shouldUsePeriodicNotesSettings("daily") && periodicNotesPlugin?.createDailyNote) {
-                const nativeFile = await periodicNotesPlugin.createDailyNote(date.clone());
-                if (nativeFile) {
-                    return nativeFile;
-                }
-            }
-        }
-        catch (err) {
-            console.info("Unable to create daily note with periodic-notes plugin, falling back.", err);
-        }
-    }
-    return createDailyNote(date, overrideFolder);
-}
+class DailyNotesFolderMissingError extends Error {}
 
-class WeeklyNotesFolderMissingError extends Error {
+async function createDailyNote(app, date, overrideFolder = "") {
+  const { vault } = app;
+  const moment = obsidian.moment;
+  const { template, format, folder } = getEffectiveDailyNoteSettings(app, overrideFolder);
+  const templateContents = await getTemplateContents(app, template);
+  const filename = date.format(format);
+  const normalizedPath = await getNotePath(app, folder, filename);
+  try {
+      const createdFile = await vault.create(normalizedPath, templateContents
+          .replace(/{{\s*date\s*}}/gi, filename)
+          .replace(/{{\s*time\s*}}/gi, moment().format("HH:mm"))
+          .replace(/{{\s*title\s*}}/gi, filename)
+          .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
+          const now = moment();
+          const currentDate = date.clone().set({
+              hour: now.get("hour"),
+              minute: now.get("minute"),
+              second: now.get("second"),
+          });
+          if (calc) {
+              currentDate.add(parseInt(timeDelta, 10), unit);
+          }
+          if (momentFormat) {
+              return currentDate.format(momentFormat.substring(1).trim());
+          }
+          return currentDate.format(format);
+      })
+          .replace(/{{\s*yesterday\s*}}/gi, date.clone().subtract(1, "day").format(format))
+          .replace(/{{\s*tomorrow\s*}}/gi, date.clone().add(1, "d").format(format)));
+      return createdFile;
+  }
+  catch (err) {
+      console.error(`Failed to create file: '${normalizedPath}'`, err);
+      new obsidian.Notice("Unable to create new file.");
+  }
 }
-function getDaysOfWeek() {
-    const { moment } = window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let weekStart = moment.localeData()._week.dow;
-    const daysOfWeek = [
-        "sunday",
-        "monday",
-        "tuesday",
-        "wednesday",
-        "thursday",
-        "friday",
-        "saturday",
-    ];
-    while (weekStart) {
-        daysOfWeek.push(daysOfWeek.shift());
-        weekStart--;
-    }
-    return daysOfWeek;
-}
-function getDayOfWeekNumericalValue(dayOfWeekName) {
-    return getDaysOfWeek().indexOf(dayOfWeekName.toLowerCase());
-}
-async function createWeeklyNote(date) {
-    const { vault } = window.app;
-    const { template, format, folder } = getWeeklyNoteSettings();
-    const [templateContents, IFoldInfo] = await getTemplateInfo(template);
-    const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
-    try {
-        const createdFile = await vault.create(normalizedPath, templateContents
-            .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
-            const now = window.moment();
-            const currentDate = date.clone().set({
-                hour: now.get("hour"),
-                minute: now.get("minute"),
-                second: now.get("second"),
-            });
-            if (calc) {
-                currentDate.add(parseInt(timeDelta, 10), unit);
-            }
-            if (momentFormat) {
-                return currentDate.format(momentFormat.substring(1).trim());
-            }
-            return currentDate.format(format);
-        })
-            .replace(/{{\s*title\s*}}/gi, filename)
-            .replace(/{{\s*time\s*}}/gi, window.moment().format("HH:mm"))
-            .replace(/{{\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s*:(.*?)}}/gi, (_, dayOfWeek, momentFormat) => {
-            const day = getDayOfWeekNumericalValue(dayOfWeek);
-            return date.weekday(day).format(momentFormat.trim());
-        }));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        window.app.foldManager.save(createdFile, IFoldInfo);
-        return createdFile;
-    }
-    catch (err) {
-        console.error(`Failed to create file: '${normalizedPath}'`, err);
-        new obsidian__default["default"].Notice("Unable to create new file.");
-    }
-}
-function getWeeklyNote(date, weeklyNotes) {
-    return weeklyNotes[getDateUID(date, "week")] ?? null;
-}
-function getAllWeeklyNotes() {
-    const weeklyNotes = {};
-    if (!appHasWeeklyNotesPluginLoaded()) {
-        return weeklyNotes;
-    }
-    const { vault } = window.app;
-    const { folder } = getWeeklyNoteSettings();
-    const weeklyNotesFolder = vault.getAbstractFileByPath(obsidian__default["default"].normalizePath(folder));
-    if (!weeklyNotesFolder) {
-        throw new WeeklyNotesFolderMissingError("Failed to find weekly notes folder");
-    }
-    obsidian__default["default"].Vault.recurseChildren(weeklyNotesFolder, (note) => {
-        if (note instanceof obsidian__default["default"].TFile) {
-            const date = getDateFromFile(note, "week");
-            if (date) {
-                const dateString = getDateUID(date, "week");
-                weeklyNotes[dateString] = note;
-            }
-        }
-    });
-    return weeklyNotes;
-}
+async function createOrGetDailyNote(app, date, overrideFolder = "") {
+  const settings = getEffectiveDailyNoteSettings(app, overrideFolder);
+  const path = await getNotePath(app, settings.folder, date.format(settings.format));
+  const existingFile = app.vault.getAbstractFileByPath(path);
+  if (existingFile instanceof obsidian.TFile) return existingFile;
 
-class MonthlyNotesFolderMissingError extends Error {
-}
-/**
- * This function mimics the behavior of the daily-notes plugin
- * so it will replace {{date}}, {{title}}, and {{time}} with the
- * formatted timestamp.
- *
- * Note: it has an added bonus that it's not 'today' specific.
- */
-async function createMonthlyNote(date) {
-    const { vault } = window.app;
-    const { template, format, folder } = getMonthlyNoteSettings();
-    const [templateContents, IFoldInfo] = await getTemplateInfo(template);
-    const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
-    try {
-        const createdFile = await vault.create(normalizedPath, templateContents
-            .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
-            const now = window.moment();
-            const currentDate = date.clone().set({
-                hour: now.get("hour"),
-                minute: now.get("minute"),
-                second: now.get("second"),
-            });
-            if (calc) {
-                currentDate.add(parseInt(timeDelta, 10), unit);
-            }
-            if (momentFormat) {
-                return currentDate.format(momentFormat.substring(1).trim());
-            }
-            return currentDate.format(format);
-        })
-            .replace(/{{\s*date\s*}}/gi, filename)
-            .replace(/{{\s*time\s*}}/gi, window.moment().format("HH:mm"))
-            .replace(/{{\s*title\s*}}/gi, filename));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        window.app.foldManager.save(createdFile, IFoldInfo);
-        return createdFile;
+  if (!overrideFolder) {
+    const periodic = app.plugins?.getPlugin?.("periodic-notes");
+    const provider = periodic?.settings?.daily?.enabled
+      ? periodic
+      : app.internalPlugins?.getPluginById?.("daily-notes")?.instance;
+    if (provider?.createDailyNote) {
+      try {
+        const file = await provider.createDailyNote(date.clone());
+        // Some providers return no file even though they created the note.
+        const created = file || app.vault.getAbstractFileByPath(path);
+        if (created instanceof obsidian.TFile && created.path === path) return created;
+      } catch (error) {
+        console.warn("Rollover Plus: Native daily note creation failed.", error);
+        const created = app.vault.getAbstractFileByPath(path);
+        if (created instanceof obsidian.TFile) return created;
+      }
     }
-    catch (err) {
-        console.error(`Failed to create file: '${normalizedPath}'`, err);
-        new obsidian__default["default"].Notice("Unable to create new file.");
-    }
+  }
+  return createDailyNote(app, date, overrideFolder);
 }
-function getMonthlyNote(date, monthlyNotes) {
-    return monthlyNotes[getDateUID(date, "month")] ?? null;
-}
-function getAllMonthlyNotes() {
-    const monthlyNotes = {};
-    if (!appHasMonthlyNotesPluginLoaded()) {
-        return monthlyNotes;
-    }
-    const { vault } = window.app;
-    const { folder } = getMonthlyNoteSettings();
-    const monthlyNotesFolder = vault.getAbstractFileByPath(obsidian__default["default"].normalizePath(folder));
-    if (!monthlyNotesFolder) {
-        throw new MonthlyNotesFolderMissingError("Failed to find monthly notes folder");
-    }
-    obsidian__default["default"].Vault.recurseChildren(monthlyNotesFolder, (note) => {
-        if (note instanceof obsidian__default["default"].TFile) {
-            const date = getDateFromFile(note, "month");
-            if (date) {
-                const dateString = getDateUID(date, "month");
-                monthlyNotes[dateString] = note;
-            }
-        }
-    });
-    return monthlyNotes;
-}
-
-class QuarterlyNotesFolderMissingError extends Error {
-}
-/**
- * This function mimics the behavior of the daily-notes plugin
- * so it will replace {{date}}, {{title}}, and {{time}} with the
- * formatted timestamp.
- *
- * Note: it has an added bonus that it's not 'today' specific.
- */
-async function createQuarterlyNote(date) {
-    const { vault } = window.app;
-    const { template, format, folder } = getQuarterlyNoteSettings();
-    const [templateContents, IFoldInfo] = await getTemplateInfo(template);
-    const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
-    try {
-        const createdFile = await vault.create(normalizedPath, templateContents
-            .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
-            const now = window.moment();
-            const currentDate = date.clone().set({
-                hour: now.get("hour"),
-                minute: now.get("minute"),
-                second: now.get("second"),
-            });
-            if (calc) {
-                currentDate.add(parseInt(timeDelta, 10), unit);
-            }
-            if (momentFormat) {
-                return currentDate.format(momentFormat.substring(1).trim());
-            }
-            return currentDate.format(format);
-        })
-            .replace(/{{\s*date\s*}}/gi, filename)
-            .replace(/{{\s*time\s*}}/gi, window.moment().format("HH:mm"))
-            .replace(/{{\s*title\s*}}/gi, filename));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        window.app.foldManager.save(createdFile, IFoldInfo);
-        return createdFile;
-    }
-    catch (err) {
-        console.error(`Failed to create file: '${normalizedPath}'`, err);
-        new obsidian__default["default"].Notice("Unable to create new file.");
-    }
-}
-function getQuarterlyNote(date, quarterly) {
-    return quarterly[getDateUID(date, "quarter")] ?? null;
-}
-function getAllQuarterlyNotes() {
-    const quarterly = {};
-    if (!appHasQuarterlyNotesPluginLoaded()) {
-        return quarterly;
-    }
-    const { vault } = window.app;
-    const { folder } = getQuarterlyNoteSettings();
-    const quarterlyFolder = vault.getAbstractFileByPath(obsidian__default["default"].normalizePath(folder));
-    if (!quarterlyFolder) {
-        throw new QuarterlyNotesFolderMissingError("Failed to find quarterly notes folder");
-    }
-    obsidian__default["default"].Vault.recurseChildren(quarterlyFolder, (note) => {
-        if (note instanceof obsidian__default["default"].TFile) {
-            const date = getDateFromFile(note, "quarter");
-            if (date) {
-                const dateString = getDateUID(date, "quarter");
-                quarterly[dateString] = note;
-            }
-        }
-    });
-    return quarterly;
-}
-
-class YearlyNotesFolderMissingError extends Error {
-}
-/**
- * This function mimics the behavior of the daily-notes plugin
- * so it will replace {{date}}, {{title}}, and {{time}} with the
- * formatted timestamp.
- *
- * Note: it has an added bonus that it's not 'today' specific.
- */
-async function createYearlyNote(date) {
-    const { vault } = window.app;
-    const { template, format, folder } = getYearlyNoteSettings();
-    const [templateContents, IFoldInfo] = await getTemplateInfo(template);
-    const filename = date.format(format);
-    const normalizedPath = await getNotePath(folder, filename);
-    try {
-        const createdFile = await vault.create(normalizedPath, templateContents
-            .replace(/{{\s*(date|time)\s*(([+-]\d+)([yqmwdhs]))?\s*(:.+?)?}}/gi, (_, _timeOrDate, calc, timeDelta, unit, momentFormat) => {
-            const now = window.moment();
-            const currentDate = date.clone().set({
-                hour: now.get("hour"),
-                minute: now.get("minute"),
-                second: now.get("second"),
-            });
-            if (calc) {
-                currentDate.add(parseInt(timeDelta, 10), unit);
-            }
-            if (momentFormat) {
-                return currentDate.format(momentFormat.substring(1).trim());
-            }
-            return currentDate.format(format);
-        })
-            .replace(/{{\s*date\s*}}/gi, filename)
-            .replace(/{{\s*time\s*}}/gi, window.moment().format("HH:mm"))
-            .replace(/{{\s*title\s*}}/gi, filename));
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        window.app.foldManager.save(createdFile, IFoldInfo);
-        return createdFile;
-    }
-    catch (err) {
-        console.error(`Failed to create file: '${normalizedPath}'`, err);
-        new obsidian__default["default"].Notice("Unable to create new file.");
-    }
-}
-function getYearlyNote(date, yearlyNotes) {
-    return yearlyNotes[getDateUID(date, "year")] ?? null;
-}
-function getAllYearlyNotes() {
-    const yearlyNotes = {};
-    if (!appHasYearlyNotesPluginLoaded()) {
-        return yearlyNotes;
-    }
-    const { vault } = window.app;
-    const { folder } = getYearlyNoteSettings();
-    const yearlyNotesFolder = vault.getAbstractFileByPath(obsidian__default["default"].normalizePath(folder));
-    if (!yearlyNotesFolder) {
-        throw new YearlyNotesFolderMissingError("Failed to find yearly notes folder");
-    }
-    obsidian__default["default"].Vault.recurseChildren(yearlyNotesFolder, (note) => {
-        if (note instanceof obsidian__default["default"].TFile) {
-            const date = getDateFromFile(note, "year");
-            if (date) {
-                const dateString = getDateUID(date, "year");
-                yearlyNotes[dateString] = note;
-            }
-        }
-    });
-    return yearlyNotes;
-}
-
-function appHasDailyNotesPluginLoaded() {
-    const { app } = window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const dailyNotesPlugin = app.internalPlugins.plugins["daily-notes"];
-    if (dailyNotesPlugin && dailyNotesPlugin.enabled) {
-        return true;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodicNotes = app.plugins.getPlugin("periodic-notes");
-    return periodicNotes && periodicNotes.settings?.daily?.enabled;
-}
-/**
- * XXX: "Weekly Notes" live in either the Calendar plugin or the periodic-notes plugin.
- * Check both until the weekly notes feature is removed from the Calendar plugin.
- */
-function appHasWeeklyNotesPluginLoaded() {
-    const { app } = window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (app.plugins.getPlugin("calendar")) {
-        return true;
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodicNotes = app.plugins.getPlugin("periodic-notes");
-    return periodicNotes && periodicNotes.settings?.weekly?.enabled;
-}
-function appHasMonthlyNotesPluginLoaded() {
-    const { app } = window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodicNotes = app.plugins.getPlugin("periodic-notes");
-    return periodicNotes && periodicNotes.settings?.monthly?.enabled;
-}
-function appHasQuarterlyNotesPluginLoaded() {
-    const { app } = window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodicNotes = app.plugins.getPlugin("periodic-notes");
-    return periodicNotes && periodicNotes.settings?.quarterly?.enabled;
-}
-function appHasYearlyNotesPluginLoaded() {
-    const { app } = window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodicNotes = app.plugins.getPlugin("periodic-notes");
-    return periodicNotes && periodicNotes.settings?.yearly?.enabled;
-}
-function getPeriodicNoteSettings(granularity) {
-    const getSettings = {
-        day: getDailyNoteSettings,
-        week: getWeeklyNoteSettings,
-        month: getMonthlyNoteSettings,
-        quarter: getQuarterlyNoteSettings,
-        year: getYearlyNoteSettings,
-    }[granularity];
-    return getSettings();
-}
-function createPeriodicNote(granularity, date) {
-    const createFn = {
-        day: createDailyNote,
-        month: createMonthlyNote,
-        week: createWeeklyNote,
-    };
-    return createFn[granularity](date);
-}
-
-exports.DEFAULT_DAILY_NOTE_FORMAT = DEFAULT_DAILY_NOTE_FORMAT;
-exports.DEFAULT_MONTHLY_NOTE_FORMAT = DEFAULT_MONTHLY_NOTE_FORMAT;
-exports.DEFAULT_QUARTERLY_NOTE_FORMAT = DEFAULT_QUARTERLY_NOTE_FORMAT;
-exports.DEFAULT_WEEKLY_NOTE_FORMAT = DEFAULT_WEEKLY_NOTE_FORMAT;
-exports.DEFAULT_YEARLY_NOTE_FORMAT = DEFAULT_YEARLY_NOTE_FORMAT;
-exports.appHasDailyNotesPluginLoaded = appHasDailyNotesPluginLoaded;
-exports.appHasMonthlyNotesPluginLoaded = appHasMonthlyNotesPluginLoaded;
-exports.appHasQuarterlyNotesPluginLoaded = appHasQuarterlyNotesPluginLoaded;
-exports.appHasWeeklyNotesPluginLoaded = appHasWeeklyNotesPluginLoaded;
-exports.appHasYearlyNotesPluginLoaded = appHasYearlyNotesPluginLoaded;
-exports.createDailyNote = createDailyNote;
-exports.createOrGetDailyNote = createOrGetDailyNote;
-exports.createMonthlyNote = createMonthlyNote;
-exports.createPeriodicNote = createPeriodicNote;
-exports.createQuarterlyNote = createQuarterlyNote;
-exports.createWeeklyNote = createWeeklyNote;
-exports.createYearlyNote = createYearlyNote;
-exports.DailyNotesFolderMissingError = DailyNotesFolderMissingError;
-exports.getAllDailyNotes = getAllDailyNotes;
-exports.getAllMonthlyNotes = getAllMonthlyNotes;
-exports.getAllQuarterlyNotes = getAllQuarterlyNotes;
-exports.getAllWeeklyNotes = getAllWeeklyNotes;
-exports.getAllYearlyNotes = getAllYearlyNotes;
-exports.getDailyNote = getDailyNote;
-exports.getEffectiveDailyNoteSettings = getEffectiveDailyNoteSettings;
-exports.getDailyNoteSettings = getDailyNoteSettings;
-exports.getDateFromFile = getDateFromFile;
-exports.getDateFromPath = getDateFromPath;
-exports.getDateUID = getDateUID;
-exports.getMonthlyNote = getMonthlyNote;
-exports.getMonthlyNoteSettings = getMonthlyNoteSettings;
-exports.getPeriodicNoteSettings = getPeriodicNoteSettings;
-exports.getQuarterlyNote = getQuarterlyNote;
-exports.getQuarterlyNoteSettings = getQuarterlyNoteSettings;
-exports.getTemplateInfo = getTemplateInfo;
-exports.getWeeklyNote = getWeeklyNote;
-exports.getWeeklyNoteSettings = getWeeklyNoteSettings;
-exports.getYearlyNote = getYearlyNote;
-exports.getYearlyNoteSettings = getYearlyNoteSettings;
-});
 
 class UndoModal extends obsidian.Modal {
   constructor(plugin) {
@@ -839,7 +135,9 @@ class UndoModal extends obsidian.Modal {
   }
 
   async confirmUndo(undoHistoryInstance) {
-    await this.plugin.restoreUndoChanges(undoHistoryInstance);
+    await this.plugin.runRolloverOperation("Undo rollover", () =>
+      this.plugin.restoreUndoChanges(undoHistoryInstance)
+    );
   }
 
   async onOpen() {
@@ -859,8 +157,8 @@ class UndoModal extends obsidian.Modal {
 
     new obsidian.Setting(contentEl)
       .addButton(button => button
-        .setButtonText('Confirm Undo')
-        .onClick(async (e) => {
+        .setButtonText('Confirm undo')
+        .onClick(async () => {
           await this.confirmUndo(undoHistoryInstance);
           this.close();
         })
@@ -880,7 +178,7 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
   }
 
   async getTemplateHeadings() {
-    const { template = "" } = main.getDailyNoteSettings() || {};
+    const { template = "" } = getDailyNoteSettings(this.app) || {};
     if (!template) return [];
 
     const templatePath = obsidian.normalizePath(template.trim());
@@ -939,9 +237,24 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
       );
 
     new obsidian.Setting(this.containerEl)
+      .setName("Rollover to today source")
+      .setDesc(
+        "Yesterday uses the most recent earlier daily note. Past week uses the seven most recent earlier notes, even with gaps, and hides the separate past-week command."
+      )
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOptions({ "previous-note": "Yesterday", "past-week": "Past week" })
+          .setValue(this.plugin.settings.rolloverToTodaySource)
+          .onChange(async (value) => {
+            this.plugin.settings.rolloverToTodaySource = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new obsidian.Setting(this.containerEl)
       .setName("Roll over from heading")
       .setDesc(
-        "For the two bulk commands, only collect unfinished tasks inside this heading. Choose All headings to collect them from the whole source note."
+        "For bulk rollover, only collect unfinished tasks inside this heading. Choose all headings to collect them from the whole source note."
       )
       .addDropdown((dropdown) =>
         dropdown
@@ -983,7 +296,7 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
     new obsidian.Setting(this.containerEl)
       .setName("Delete tasks from source note")
       .setDesc(
-        `After tasks are safely added to the destination, remove their exact source blocks. When disabled, the bulk today and tomorrow commands copy tasks instead. The current-selection command always moves its selected task.`
+        `After tasks are safely added to the destination, remove their exact source blocks. When disabled, bulk rollover commands copy tasks instead. The current-selection command always moves its selected task.`
       )
       .addToggle((toggle) =>
         toggle
@@ -1038,10 +351,33 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
   }
 }
 
+// Share Markdown context between task parsing and heading lookup.
+function getMarkdownLineMask(lines) {
+  let fence = null;
+  let frontmatter = lines[0]?.replace(/^\uFEFF/, "") === "---";
+  return lines.map((line, index) => {
+    if (frontmatter) {
+      if (index > 0 && /^(---|\.\.\.)\s*$/.test(line)) frontmatter = false;
+      return false;
+    }
+    if (fence) {
+      const closing = line.match(/^\s*(`{3,}|~{3,})\s*$/);
+      if (closing && closing[1][0] === fence[0] && closing[1].length >= fence.length) {
+        fence = null;
+      }
+      return false;
+    }
+    const opening = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+    if (opening && !(opening[1][0] === "`" && opening[2].includes("`"))) {
+      fence = opening[1];
+      return false;
+    }
+    return true;
+  });
+}
+
 class TodoParser {
   // Support all unordered list bullet symbols as per spec (https://daringfireball.net/projects/markdown/syntax#list)
-  bulletSymbols = ["-", "*", "+"];
-
   // Default completed status markers
   doneStatusMarkers = ["x", "X", "-"];
 
@@ -1055,7 +391,7 @@ class TodoParser {
   #segmenter;
 
   // Parse content with segmentation to allow for Unicode grapheme clusters
-  #parseIntoChars(content, contentType = "content") {
+  #parseIntoChars(content) {
     // Use Intl.Segmenter to properly split grapheme clusters if available,
     // otherwise fall back to Array.from. The fallback should not trigger in
     // Obsidian since it uses Electron which supports Intl.Segmenter.
@@ -1064,9 +400,6 @@ class TodoParser {
     } else {
       // Array.from() splits surrogate pairs correctly but not complex grapheme clusters
       // (e.g., 👨‍👩‍👧‍👦 would be split incorrectly) and fail to match.
-      console.error(
-        `Intl.Segmenter not available, falling back to Array.from() for ${contentType}`
-      );
       return Array.from(content);
     }
   }
@@ -1080,8 +413,7 @@ class TodoParser {
         : null;
     if (doneStatusMarkers) {
       this.doneStatusMarkers = this.#parseIntoChars(
-        doneStatusMarkers,
-        "done status markers"
+        doneStatusMarkers
       );
     }
   }
@@ -1100,8 +432,7 @@ class TodoParser {
 
     // Parse content with segmentation to allow for Unicode grapheme clusters
     const contentChars = this.#parseIntoChars(
-      checkboxContent,
-      "checkbox content"
+      checkboxContent
     );
 
     // Valid checkbox content must be exactly one grapheme cluster
@@ -1167,25 +498,10 @@ class TodoParser {
   // Returns each unfinished todo with its exact source range and optional children.
   getTodoBlocks() {
     const blocks = [];
-    let fence = null;
+    const markdownLines = getMarkdownLineMask(this.#lines);
     for (let l = 0; l < this.#lines.length; l++) {
       const line = this.#lines[l];
-      const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
-      if (fenceMatch) {
-        const marker = fenceMatch[1];
-        if (!fence) {
-          fence = { character: marker[0], length: marker.length };
-        } else if (
-          marker[0] === fence.character &&
-          marker.length >= fence.length
-        ) {
-          fence = null;
-        }
-        continue;
-      }
-      if (fence) {
-        continue;
-      }
+      if (!markdownLines[l]) continue;
       if (this.#isTodo(line)) {
         let blockLines = [line];
         let endLine = l;
@@ -1201,21 +517,7 @@ class TodoParser {
     return blocks;
   }
 
-  // Returns a flat list for compatibility with the original parser API.
-  getTodos() {
-    return this.getTodoBlocks().flatMap((block) => block.lines);
-  }
 }
-
-// Utility-function that acts as a thin wrapper around `TodoParser`
-const getTodos = ({
-  lines,
-  withChildren = false,
-  doneStatusMarkers = null,
-}) => {
-  const todoParser = new TodoParser(lines, withChildren, doneStatusMarkers);
-  return todoParser.getTodos();
-};
 
 const getTodoBlocks = ({
   lines,
@@ -1230,6 +532,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
   async loadSettings() {
     const DEFAULT_SETTINGS = {
       dailyNoteFolder: "",
+      rolloverToTodaySource: "previous-note",
       sourceHeading: "none",
       templateHeading: "### ⭐ Tasks:",
       deleteOnComplete: true,
@@ -1259,13 +562,6 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     return dailyNotesEnabled || periodicNotesEnabled;
   }
 
-  async getAllUnfinishedTodos(file) {
-    const dn = await this.app.vault.read(file);
-    return this.getRolloverTodoBlocksFromContent(dn).flatMap(
-      (block) => block.lines
-    );
-  }
-
   getTodoBlocksFromContent(content, withChildren = this.settings.rolloverChildren) {
     const { lines } = this.splitNoteContent(content);
     return getTodoBlocks({
@@ -1290,15 +586,9 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       return [];
     }
 
-    return getTodoBlocks({
-      lines: lines.slice(section.startLine, section.endLine),
-      withChildren,
-      doneStatusMarkers: this.settings.doneStatusMarkers,
-    }).map((block) => ({
-      ...block,
-      startLine: block.startLine + section.startLine,
-      endLine: block.endLine + section.startLine,
-    }));
+    return this.getTodoBlocksFromContent(content, withChildren).filter(
+      (block) => block.startLine >= section.startLine && block.endLine < section.endLine
+    );
   }
 
   splitNoteContent(content) {
@@ -1320,20 +610,23 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
   isTaskHeading(line) {
     return (
-      /^\s*#{1,}\s+/.test(line) &&
+      /^\s*#{1,6}\s+/.test(line) &&
       /\btasks?\b/i.test(this.normalizeHeading(line))
     );
   }
 
   getHeadingLevel(line) {
-    const match = line.match(/^\s*(#{1,})\s+/);
+    const match = line.match(/^\s*(#{1,6})\s+/);
     return match ? match[1].length : 0;
   }
 
   extractTemplateHeadings(content) {
     const headings = [];
     const seen = new Set();
-    content.split(/\r\n|\n|\r/).forEach((line) => {
+    const { lines } = this.splitNoteContent(content);
+    const markdownLines = getMarkdownLineMask(lines);
+    lines.forEach((line, index) => {
+      if (!markdownLines[index]) return;
       const match = line.match(/^\s*(#{1,6}\s+\S.*?\s*)$/);
       if (!match) {
         return;
@@ -1348,27 +641,34 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     return headings;
   }
 
-  findSelectedHeadingIndex(lines, selectedHeading) {
+  getHeadingLevels(lines) {
+    return getMarkdownLineMask(lines).map((isMarkdown, index) =>
+      isMarkdown ? this.getHeadingLevel(lines[index]) : 0
+    );
+  }
+
+  findSelectedHeadingIndex(lines, selectedHeading, levels = this.getHeadingLevels(lines)) {
     const heading = (selectedHeading || "").trim();
     if (!heading || heading === "none") {
       return -1;
     }
 
-    const exactMatchIndex = lines.findIndex((line) => line.trim() === heading);
+    const exactMatchIndex = lines.findIndex((line, index) => levels[index] > 0 && line.trim() === heading);
     if (exactMatchIndex !== -1) {
       return exactMatchIndex;
     }
 
     const normalizedHeading = this.normalizeHeading(heading);
     return lines.findIndex(
-      (line) =>
-        this.getHeadingLevel(line) > 0 &&
+      (line, index) =>
+        levels[index] > 0 &&
         this.normalizeHeading(line) === normalizedHeading
     );
   }
 
   getHeadingSectionRange(lines, selectedHeading) {
-    const headingIndex = this.findSelectedHeadingIndex(lines, selectedHeading);
+    const levels = this.getHeadingLevels(lines);
+    const headingIndex = this.findSelectedHeadingIndex(lines, selectedHeading, levels);
     if (headingIndex === -1) {
       return null;
     }
@@ -1376,7 +676,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     const headingLevel = this.getHeadingLevel(lines[headingIndex]);
     let endLine = lines.length;
     for (let i = headingIndex + 1; i < lines.length; i++) {
-      const level = this.getHeadingLevel(lines[i]);
+      const level = levels[i];
       if (level > 0 && level <= headingLevel) {
         endLine = i;
         break;
@@ -1406,62 +706,39 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     });
   }
 
-  findTemplateHeadingIndex(lines, templateHeading) {
+  findTemplateHeadingIndex(lines, templateHeading, levels = this.getHeadingLevels(lines)) {
     const selectedHeading = (templateHeading || "").trim();
     if (selectedHeading && selectedHeading !== "none") {
       const selectedHeadingIndex = this.findSelectedHeadingIndex(
         lines,
-        selectedHeading
+        selectedHeading,
+        levels
       );
       if (selectedHeadingIndex !== -1) {
         return selectedHeadingIndex;
       }
     }
 
-    return lines.findIndex((line) => this.isTaskHeading(line));
-  }
-
-  removeRolledOverTodos(content, todos) {
-    const { lines, newline } = this.splitNoteContent(content);
-    const remainingCounts = new Map();
-
-    todos.forEach((line) => {
-      remainingCounts.set(line, (remainingCounts.get(line) || 0) + 1);
-    });
-
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i];
-      const remaining = remainingCounts.get(line) || 0;
-      if (remaining > 0) {
-        lines.splice(i, 1);
-        remainingCounts.set(line, remaining - 1);
-      }
-    }
-
-    this.removeEmptyTasksHeadings(lines);
-    return lines.join(newline);
-  }
-
-  findContainingHeadingIndex(lines, lineIndex) {
-    for (let i = lineIndex - 1; i >= 0; i--) {
-      if (this.getHeadingLevel(lines[i]) > 0) {
-        return i;
-      }
-    }
-    return -1;
+    return lines.findIndex((line, index) => levels[index] > 0 && this.isTaskHeading(line));
   }
 
   removeTodoBlocksFromContent(content, blocks) {
     const { lines, newline } = this.splitNoteContent(content);
     const removedLineIndices = new Set();
     const touchedHeadingIndices = new Set();
+    let currentHeading = -1;
+    const containingHeadings = this.getHeadingLevels(lines).map((level, index) => {
+      const containing = currentHeading;
+      if (level > 0) currentHeading = index;
+      return containing;
+    });
 
     blocks.forEach((block) => {
       for (let i = block.startLine; i <= block.endLine; i++) {
         removedLineIndices.add(i);
       }
 
-      const headingIndex = this.findContainingHeadingIndex(lines, block.startLine);
+      const headingIndex = containingHeadings[block.startLine];
       if (headingIndex !== -1 && this.isRolloverHeading(lines[headingIndex])) {
         touchedHeadingIndices.add(headingIndex);
       }
@@ -1526,11 +803,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
         const hasContentAfter = rightRunEnd < entries.length;
 
         const removeOriginalIndices = new Set();
-        if (!hasContentBefore && !hasContentAfter) {
-          [...leftBlanks, ...rightBlanks].forEach((entry) =>
-            removeOriginalIndices.add(entry.originalIndex)
-          );
-        } else if (!hasContentBefore) {
+        if (!hasContentBefore) {
           [...leftBlanks, ...rightBlanks].forEach((entry) =>
             removeOriginalIndices.add(entry.originalIndex)
           );
@@ -1564,15 +837,17 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
   insertTodosInNote(content, todos, templateHeading) {
     const { lines, newline } = this.splitNoteContent(content);
+    const levels = this.getHeadingLevels(lines);
     const headingLineIndex = this.findTemplateHeadingIndex(
       lines,
-      templateHeading
+      templateHeading,
+      levels
     );
 
     let insertionIndex = lines.length;
     if (headingLineIndex !== -1) {
       for (let i = headingLineIndex + 1; i < lines.length; i++) {
-        if (/^\s*#{1,}\s+/.test(lines[i])) {
+        if (levels[i] > 0) {
           insertionIndex = i;
           break;
         }
@@ -1678,17 +953,6 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     });
   }
 
-  removeEmptyTasksHeadings(lines) {
-    const entries = lines.map((text, originalIndex) => ({ text, originalIndex }));
-    const candidates = new Set(
-      entries
-        .filter((entry) => this.isRolloverHeading(entry.text))
-        .map((entry) => entry.originalIndex)
-    );
-    this.removeEmptyRolloverHeadingEntries(entries, candidates);
-    lines.splice(0, lines.length, ...entries.map((entry) => entry.text));
-  }
-
   getCleanFolder(folder) {
     // Check if user defined folder with root `/` e.g. `/dailies`
     if (folder.startsWith("/")) {
@@ -1705,7 +969,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
   getDailyNoteAtDate(date) {
     const { dailyNoteFolder } = this.settings;
-    let { folder, format } = main.getEffectiveDailyNoteSettings(dailyNoteFolder);
+    let { folder, format } = getEffectiveDailyNoteSettings(this.app, dailyNoteFolder);
     folder = this.getCleanFolder(folder);
     const notePath = obsidian.normalizePath(
       `${folder}${folder === "" ? "" : "/"}${date.format(format)}.md`
@@ -1715,7 +979,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
   }
 
   getAllConfiguredDailyNotes() {
-    const effectiveSettings = main.getEffectiveDailyNoteSettings(
+    const effectiveSettings = getEffectiveDailyNoteSettings(this.app,
       this.settings.dailyNoteFolder
     );
     const folder = this.getCleanFolder(effectiveSettings.folder);
@@ -1724,41 +988,25 @@ class RolloverPlusPlugin extends obsidian.Plugin {
         ? this.app.vault.getRoot()
         : this.app.vault.getAbstractFileByPath(obsidian.normalizePath(folder));
     if (!root) {
-      throw new main.DailyNotesFolderMissingError(
+      throw new DailyNotesFolderMissingError(
         "Failed to find daily notes folder"
       );
     }
 
-    const files = [];
+    const notes = [];
     obsidian.Vault.recurseChildren(root, (file) => {
       if (file instanceof obsidian.TFile && file.extension === "md") {
-        files.push(file);
+        const date = this.getDateFromDailyNote(file, effectiveSettings);
+        if (date) notes.push({ file, date });
       }
     });
-
-    return files
-      .map((file) => ({
-        file,
-        date: this.getDateFromDailyNote(file, effectiveSettings),
-      }))
-      .filter((entry) => entry.date !== null);
-  }
-
-  getDailyNoteFromCollection(date, dailyNotes) {
-    for (const item of Object.values(dailyNotes)) {
-      const file = item.file || item;
-      const fileDate = item.date || this.getDateFromDailyNote(file);
-      if (fileDate && fileDate.isSame(date, "day")) {
-        return file;
-      }
-    }
-    return null;
+    return notes;
   }
 
   getDateFromDailyNote(file, effectiveSettings = null) {
     let { folder, format } =
       effectiveSettings ||
-      main.getEffectiveDailyNoteSettings(this.settings.dailyNoteFolder);
+      getEffectiveDailyNoteSettings(this.app, this.settings.dailyNoteFolder);
     folder = this.getCleanFolder(folder);
     const prefix = folder === "" ? "" : `${folder}/`;
     if (!file.path.startsWith(prefix) || !file.path.endsWith(".md")) {
@@ -1766,32 +1014,26 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     }
 
     const relativePath = file.path.slice(prefix.length, -3);
-    const date = window.moment(relativePath, format, true);
+    const date = obsidian.moment(relativePath, format, true);
     return date.isValid() ? date : null;
   }
 
   createOrGetDailyNote(date) {
-    return main.createOrGetDailyNote(date, this.settings.dailyNoteFolder);
+    return createOrGetDailyNote(this.app, date, this.settings.dailyNoteFolder);
   }
 
-  getMostRecentDailyNoteBefore(date, dailyNotes) {
-    let latestFile = null;
-    let latestTime = -Infinity;
-
-    Object.values(dailyNotes).forEach((item) => {
+  getRecentDailyNotesBefore(date, dailyNotes, limit = 1) {
+    const recent = [];
+    for (const item of Object.values(dailyNotes)) {
       const file = item.file || item;
       const fileDate = item.date || this.getDateFromDailyNote(file);
-      if (!fileDate || !fileDate.isBefore(date, "day")) {
-        return;
-      }
-      const fileTime = fileDate.valueOf();
-      if (fileTime > latestTime) {
-        latestFile = file;
-        latestTime = fileTime;
-      }
-    });
-
-    return latestFile;
+      if (!fileDate || !fileDate.isBefore(date, "day")) continue;
+      const time = fileDate.valueOf();
+      const index = recent.findIndex((entry) => entry.time < time);
+      recent.splice(index === -1 ? recent.length : index, 0, { file, time });
+      if (recent.length > limit) recent.pop();
+    }
+    return recent.map((entry) => entry.file);
   }
 
   recordUndo(changes) {
@@ -1803,6 +1045,10 @@ class RolloverPlusPlugin extends obsidian.Plugin {
   }
 
   async restoreUndoChanges(undoHistoryInstance) {
+    if (this.undoHistory[0] !== undoHistoryInstance || Date.now() - this.undoHistoryTime.getTime() > 120000) {
+      new obsidian.Notice("This rollover can no longer be undone.");
+      return;
+    }
     for (let i = undoHistoryInstance.changes.length - 1; i >= 0; i--) {
       const change = undoHistoryInstance.changes[i];
       await this.app.vault.modify(change.file, change.oldContent);
@@ -1873,78 +1119,59 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     return true;
   }
 
-  async applyRollover({
-    sourceNote,
-    destinationNote,
-    sourceContent,
-    sourceBlocks,
-    prepared,
-    forceDeleteSource = false,
-    sourceWriter = null,
-  }) {
+  applyRollover({ destinationNote, ...source }) {
+    return this.applyRolloverBatch([source], destinationNote);
+  }
+
+  async applyRolloverBatch(sources, destinationNote) {
     const changes = [];
-    let headingFound = true;
-    let sourceWriteSkipped = false;
-
-    if (prepared.lines.length > 0) {
-      if (!destinationNote) {
-        throw new Error("A destination note is required for non-empty tasks.");
-      }
-      if (sourceNote.path === destinationNote.path) {
-        throw new Error("The source and destination notes are the same file.");
-      }
-
-      const destinationUpdate = await this.insertIntoDestination(
-        destinationNote,
-        prepared.lines
-      );
-      headingFound = destinationUpdate.headingFound;
-      if (destinationUpdate.changed) {
-        changes.push({
-          file: destinationNote,
-          oldContent: destinationUpdate.oldContent,
-        });
-      }
+    const lines = sources.flatMap((source) => source.prepared.lines);
+    const result = {
+      taskCount: sources.reduce((sum, source) => sum + source.prepared.taskCount, 0),
+      emptyCount: sources.reduce((sum, source) => sum + source.prepared.emptyCount, 0),
+      headingFound: true,
+      sourceDeleted: sources.every((source) => source.forceDeleteSource || this.settings.deleteOnComplete),
+      sourceWriteSkipped: false,
+      changed: false,
+    };
+    if (lines.length > 0 && !destinationNote) {
+      throw new Error("A destination note is required for non-empty tasks.");
+    }
+    if (sources.some((source) => source.sourceNote.path === destinationNote?.path)) {
+      throw new Error("The source and destination notes are the same file.");
     }
 
-    const shouldDeleteSource = forceDeleteSource || this.settings.deleteOnComplete;
-    if (shouldDeleteSource) {
-      const updatedSource = this.removeTodoBlocksFromContent(
-        sourceContent,
-        sourceBlocks
-      );
-      if (updatedSource !== sourceContent) {
-        try {
-          if (sourceWriter) {
-            const written = await sourceWriter(updatedSource);
-            sourceWriteSkipped = written === false;
-          } else {
-            const written = await this.writeSourceSafely(
-              sourceNote,
-              sourceContent,
-              updatedSource
-            );
-            sourceWriteSkipped = written === false;
-          }
-        } catch (error) {
-          this.recordUndo(changes);
-          throw error;
+    try {
+      // Save every collected task in one destination write before touching sources.
+      if (lines.length > 0) {
+        const update = await this.insertIntoDestination(destinationNote, lines);
+        result.headingFound = update.headingFound;
+        if (update.changed) {
+          changes.push({ file: destinationNote, oldContent: update.oldContent });
         }
+      }
 
-        if (!sourceWriteSkipped) {
+      for (const source of sources) {
+        if (!(source.forceDeleteSource || this.settings.deleteOnComplete)) continue;
+        const { sourceNote, sourceContent, sourceBlocks, sourceWriter } = source;
+        const updatedSource = this.removeTodoBlocksFromContent(sourceContent, sourceBlocks);
+        if (updatedSource === sourceContent) continue;
+        const written = sourceWriter
+          ? await sourceWriter(updatedSource)
+          : await this.writeSourceSafely(sourceNote, sourceContent, updatedSource);
+        if (written === false) {
+          result.sourceWriteSkipped = true;
+          result.sourceDeleted = false;
+        } else {
           changes.push({ file: sourceNote, oldContent: sourceContent });
         }
       }
+      result.changed = changes.length > 0;
+      return result;
+    } finally {
+      // A partial failure must still leave the entire completed part undoable.
+      this.recordUndo(changes);
     }
-
-    this.recordUndo(changes);
-    return {
-      ...prepared,
-      headingFound,
-      sourceDeleted: shouldDeleteSource && !sourceWriteSkipped,
-      sourceWriteSkipped,
-      changed: changes.length > 0,
-    };
   }
 
   showRolloverResult(result, destinationLabel) {
@@ -2013,7 +1240,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       return;
     }
 
-    const now = window.moment();
+    const now = obsidian.moment();
     const currentDailyNote = this.getDailyNoteAtDate(now);
     if (!currentDailyNote) {
       new obsidian.Notice("Rollover Plus couldn't find today's daily note.", 6000);
@@ -2054,12 +1281,12 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     this.showRolloverResult(result, "tomorrow");
   }
 
-  async rolloverToToday() {
+  async rolloverToToday(noteLimit = this.settings.rolloverToTodaySource === "past-week" ? 7 : 1) {
     if (!this.checkDailyNotesEnabled()) {
       return;
     }
 
-    const today = window.moment();
+    const today = obsidian.moment();
     const todayNote = this.getDailyNoteAtDate(today);
     if (!todayNote) {
       new obsidian.Notice(
@@ -2073,37 +1300,37 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     try {
       allDailyNotes = this.getAllConfiguredDailyNotes();
     } catch (error) {
-      if (!(error instanceof main.DailyNotesFolderMissingError)) {
+      if (!(error instanceof DailyNotesFolderMissingError)) {
         throw error;
       }
       new obsidian.Notice("Rollover Plus couldn't find the daily notes folder.", 6000);
       return;
     }
 
-    const previousNote = this.getMostRecentDailyNoteBefore(today, allDailyNotes);
-    if (!previousNote) {
+    const previousNotes = this.getRecentDailyNotesBefore(today, allDailyNotes, noteLimit);
+    if (previousNotes.length === 0) {
       new obsidian.Notice("Rollover Plus: No earlier daily note found.", 4000);
       return;
     }
 
-    const sourceContent = await this.app.vault.read(previousNote);
-    const sourceBlocks = this.getRolloverTodoBlocksFromContent(sourceContent);
-    if (sourceBlocks.length === 0) {
-      new obsidian.Notice(
-        `Rollover Plus: No unfinished tasks found in ${previousNote.basename}.md.`,
-        4000
-      );
+    const sources = [];
+    for (const sourceNote of previousNotes) {
+      const sourceContent = await this.app.vault.read(sourceNote);
+      const sourceBlocks = this.getRolloverTodoBlocksFromContent(sourceContent);
+      if (sourceBlocks.length === 0) continue;
+      sources.push({
+        sourceNote,
+        sourceContent,
+        sourceBlocks,
+        prepared: this.prepareTodoBlocks(sourceBlocks),
+      });
+    }
+    if (sources.length === 0) {
+      new obsidian.Notice("Rollover Plus: No unfinished tasks found in the earlier daily notes.", 4000);
       return;
     }
 
-    const prepared = this.prepareTodoBlocks(sourceBlocks, false);
-    const result = await this.applyRollover({
-      sourceNote: previousNote,
-      destinationNote: todayNote,
-      sourceContent,
-      sourceBlocks,
-      prepared,
-    });
+    const result = await this.applyRolloverBatch(sources, todayNote);
     this.showRolloverResult(result, "today");
   }
 
@@ -2254,7 +1481,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     }
 
     const prepared = this.prepareTodoBlocks(selectedBlocks, true);
-    const tomorrow = window.moment().add(1, "day");
+    const tomorrow = obsidian.moment().add(1, "day");
     let tomorrowNote = null;
     if (prepared.lines.length > 0) {
       tomorrowNote = this.getDailyNoteAtDate(tomorrow);
@@ -2325,6 +1552,20 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     });
 
     this.addCommand({
+      id: "rollover-past-week",
+      name: "Rollover to-dos from the past week",
+      checkCallback: (checking) => {
+        if (this.settings.rolloverToTodaySource === "past-week") return false;
+        if (!checking) {
+          void this.runRolloverOperation("Rollover from the last seven daily notes", () =>
+            this.rolloverToToday(7)
+          );
+        }
+        return true;
+      },
+    });
+
+    this.addCommand({
       id: "send-selection-to-tomorrow",
       name: "Rollover current selection to tomorrow",
       editorCallback: (editor, view) =>
@@ -2338,12 +1579,8 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       name: "Undo last rollover",
       checkCallback: (checking) => {
         // no history, don't allow undo
-        if (this.undoHistory.length > 0) {
-          const now = window.moment();
-          const lastUse = window.moment(this.undoHistoryTime);
-          const diff = now.diff(lastUse, "seconds");
-          // 2+ mins since use: don't allow undo
-          if (diff > 2 * 60) {
+        if (!this.rolloverInProgress && this.undoHistory.length > 0) {
+          if (Date.now() - this.undoHistoryTime.getTime() > 120000) {
             return false;
           }
           if (!checking) {
@@ -2358,6 +1595,3 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 }
 
 module.exports = RolloverPlusPlugin;
-
-
-/* nosourcemap */

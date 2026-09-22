@@ -1,14 +1,15 @@
 # Rollover Plus
 
-Keep unfinished tasks moving without copying and pasting them between daily notes. Rollover Plus gives you three focused commands:
+Keep unfinished tasks moving without copying and pasting them between daily notes. Rollover Plus gives you four rollover commands:
 
-- **Rollover to today:** Bring unfinished tasks from your most recent earlier daily note into today's note.
+- **Rollover to today:** Bring unfinished tasks from your most recent earlier daily note into today's note, or choose the last seven daily notes in settings.
+- **Rollover to-dos from the past week:** Bring unfinished tasks from the seven most recent earlier daily notes into today.
 - **Rollover to tomorrow:** Send every unfinished task in today's note to tomorrow's note.
 - **Rollover current selection to tomorrow:** Send one task from any Markdown note to tomorrow's note.
 
 The plugin uses the folder, filename format, and template from Obsidian's Daily Notes plugin or the daily-note settings in Periodic Notes. An optional folder override is available in Rollover Plus settings.
 
-## The three main commands
+## Rollover commands
 
 ### Rollover to tomorrow
 
@@ -18,11 +19,23 @@ Leading `tomorrow` and `tmrw` labels are removed from the rolled task text. If a
 
 ### Rollover to today
 
-Moves or copies every unfinished task from the closest earlier daily note into today's existing daily note. The source can be yesterday or an older note if there are gaps. Future notes are ignored.
+Moves or copies every unfinished task from the closest earlier daily note into today's existing daily note by default. The source can be yesterday or an older note if there are gaps.
+
+Use the **Rollover to today source** dropdown to choose **Yesterday** (the default) or **Past week**. Past week makes this command collect from the seven most recent earlier daily notes and disables the separate past-week command. Switching back to Yesterday makes the separate command available again.
 
 Create today's daily note before running this command. This matches the manual rollover behavior from the original Rollover Daily Todos plugin.
 
 If a **Roll over from heading** is selected, only unfinished tasks inside that section of the earlier note are included.
+
+### Rollover to-dos from the past week
+
+Collects unfinished tasks from the **seven most recent daily notes before today**, ordered newest first. Missing dates do not count toward the seven: notes from earlier weeks are included when needed. If fewer than seven earlier notes exist, it uses those available. Notes with no matching unfinished tasks still count toward the seven. Today and future notes are excluded.
+
+This uses the same source heading, destination heading, status markers, child-task handling, empty-task cleanup, and move/copy settings as regular rollover to today. Identical task text remains separate, just as it does in regular rollover. Today's note must already exist.
+
+All collected tasks are saved to today in one write before any source tasks are removed. **Undo last rollover** restores the whole operation, including completed writes if a later source write fails. A source edited during the rollover is kept, and a notice explains why.
+
+The separate command is available when **Rollover to today source** is set to **Yesterday**. Choose **Past week** to use the same behavior through your usual Rollover to today command and hotkey instead.
 
 ### Send one task to tomorrow
 
@@ -46,20 +59,23 @@ Restores every file changed by the last rollover. One undo is kept in memory for
 
 Rollover Plus scans the daily note template configured in Daily Notes or Periodic Notes and offers its Markdown headings in the settings dropdowns.
 
-For the two bulk commands, **Roll over from heading** limits collection to that heading's full section, including child headings. If it is set to **All headings**, unfinished tasks are collected from the whole source note. A selected heading that is missing from a source note does not fall back to tasks elsewhere. The current-selection command is never limited by this setting.
+For bulk rollover commands, **Roll over from heading** limits collection to that heading's full section, including child headings. If it is set to **All headings**, unfinished tasks are collected from the whole source note. A selected heading that is missing from a source note does not fall back to tasks elsewhere. The current-selection command is never limited by this setting.
 
 For placement, Rollover Plus prefers **Roll over to heading**. If it is missing, the first Markdown heading containing `task` or `tasks` is used, regardless of heading level, capitalization, emoji, or punctuation. If no task heading exists, tasks are added to the end of the destination note.
 
 An empty task placeholder at the insertion point is replaced. When moving tasks empties a matching source section, Rollover Plus removes that affected heading and its blank scaffold. Completed tasks, prose, child headings, and other real content keep the heading in place.
 
+Task and heading detection ignores fenced code blocks and frontmatter.
+
 The destination is always saved before source text is removed. If the source write fails or the editor changes during a selection rollover, the source stays intact.
 
 ## Settings
 
+- **Rollover to today source:** Choose Yesterday (the most recent earlier note) or Past week (the seven most recent earlier notes). Past week disables the separate past-week command.
 - **Daily note folder:** Optional folder override. Leave it blank to use Daily Notes or Periodic Notes.
-- **Roll over from heading:** Optional source section for the two bulk commands. Choose **All headings** to collect unfinished tasks from the whole note.
+- **Roll over from heading:** Optional source section for bulk rollover commands. Choose **All headings** to collect unfinished tasks from the whole note.
 - **Roll over to heading:** Preferred destination heading, with automatic Task heading detection as fallback.
-- **Delete tasks from source note:** Move tasks for the two bulk commands. Disable it to copy instead.
+- **Delete tasks from source note:** Move tasks for bulk rollover commands. Disable it to copy instead.
 - **Remove empty tasks in rollover:** Skip empty task boxes and clean them from a source being moved.
 - **Roll over task children:** Include indented Markdown beneath each unfinished task.
 - **Done status markers:** Checkbox characters treated as complete. The default is `xX-`.
@@ -71,6 +87,12 @@ Enable either Obsidian's core Daily Notes plugin or Periodic Notes with daily no
 ## Installation note
 
 Rollover Plus uses the plugin ID `rollover-plus`, matching its Community Directory URL. Obsidian treats a new plugin ID as a new installation, so settings and hotkeys from an earlier installation need to be set again.
+
+## Development checks
+
+Run `npm ci`, then `npm run check` to run syntax validation, the official Obsidian ESLint rules (including manifest validation), and the regression tests. Testing uses a simulated vault and editor; it does not control the Obsidian app.
+
+The plugin runs directly from `main.js` without a build step or bundled runtime dependencies. GitHub releases include `main.js` and `manifest.json` as separate assets. No stylesheet is needed.
 
 ## Attribution
 
