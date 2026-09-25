@@ -5,9 +5,17 @@ Keep unfinished tasks moving without copying and pasting them between daily note
 - **Rollover to today:** Bring unfinished tasks from your most recent earlier daily note into today's note, or choose the last seven daily notes in settings.
 - **Rollover to-dos from the past week:** Bring unfinished tasks from the seven most recent earlier daily notes into today.
 - **Rollover to tomorrow:** Send every unfinished task in today's note to tomorrow's note.
-- **Rollover current selection to tomorrow:** Send one task from any Markdown note to tomorrow's note.
+- **Send selection to tomorrow:** Send one task from any Markdown note to tomorrow's note, from the command palette or editor's right-click menu.
 
 The plugin uses the folder, filename format, and template from Obsidian's Daily Notes plugin or the daily-note settings in Periodic Notes. An optional folder override is available in Rollover Plus settings.
+
+## Automatic rollover
+
+Enable **Automatic rollover on daily note open** in settings to bring unfinished tasks into today's note when you open it, including when Obsidian starts with that note already open. The toggle is off by default unless an existing automatic-rollover preference was saved.
+
+Automatic rollover checks **yesterday's calendar date only**, even when **Rollover to today source** is set to **Past week**. It looks up that note directly without scanning the daily-note folder. If yesterday's note is missing or has no matching unfinished tasks, nothing happens. It never falls back to an older note or creates today's note.
+
+It uses your heading, status, task-child, cleanup, and move/copy settings, and supports **Undo last rollover**. After finding tasks and completing a rollover, it saves that day's result so reopening the note or restarting Obsidian will not copy tasks again. A partial move is also remembered if today's note was already saved. Undo does not re-enable the automatic run for that day; use a manual command if you want to roll over again.
 
 ## Rollover commands
 
@@ -39,13 +47,13 @@ The separate command is available when **Rollover to today source** is set to **
 
 ### Send one task to tomorrow
 
-Put the cursor anywhere on one unfinished task, or select part of its line, then run **Rollover current selection to tomorrow**. Rollover Plus moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
+Put the cursor anywhere on one unfinished task, or select part of its line, then run **Send selection to tomorrow** from the command palette or the editor's right-click menu. This was previously named **Rollover current selection to tomorrow**; its command ID is unchanged, so existing Rollover Plus hotkeys still work. Rollover Plus moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
 
 This command:
 
 - works from any Markdown note;
 - moves only the exact selected task when identical task text appears elsewhere;
-- includes indented child lines when **Roll over task children** is enabled;
+- includes indented child lines when **Roll over task children** is enabled, even when you select the parent and its children together;
 - always removes the selected source task after the destination is saved, even when bulk rollover is set to copy;
 - keeps the source task if the editor changes while tomorrow's note is being saved.
 
@@ -71,6 +79,7 @@ The destination is always saved before source text is removed. If the source wri
 
 ## Settings
 
+- **Automatic rollover on daily note open:** Automatically roll over from yesterday when opening today's daily note. Always checks only yesterday, independently of the manual source dropdown. Off by default.
 - **Rollover to today source:** Choose Yesterday (the most recent earlier note) or Past week (the seven most recent earlier notes). Past week disables the separate past-week command.
 - **Daily note folder:** Optional folder override. Leave it blank to use Daily Notes or Periodic Notes.
 - **Roll over from heading:** Optional source section for bulk rollover commands. Choose **All headings** to collect unfinished tasks from the whole note.

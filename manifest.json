@@ -1,7 +1,7 @@
 {
   "id": "rollover-plus",
   "name": "Rollover Plus",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "minAppVersion": "0.12.12",
   "description": "Roll unfinished tasks from your last daily note or last seven daily notes into today, or move tasks to tomorrow.",
   "author": "Wren",

@@ -15,11 +15,20 @@ class TFile {
 }
 const notices = [];
 const dropdowns = new Map();
+const toggles = new Map();
 class Setting {
   setName(name) { this.name = name; return this; }
   setDesc() { return this; }
   addText() { return this; }
-  addToggle() { return this; }
+  addToggle(callback) {
+    const control = {
+      setValue(value) { this.value = value; return this; },
+      onChange(handler) { this.change = handler; return this; },
+    };
+    callback(control);
+    toggles.set(this.name, control);
+    return this;
+  }
   addDropdown(callback) {
     const control = {
       addOptions(options) { this.options = options; return this; },
@@ -61,6 +70,8 @@ async function fixture(initial, settings = {}, options = {}) {
   const writes = [];
   const reads = [];
   const commands = [];
+  const events = new Map();
+  let layoutReady;
   let settingTab;
   const folder = options.folder ?? "daily";
   const dailyOptions = { folder, format: options.format || "YYYY-MM-DD", template: options.template || "" };
@@ -92,6 +103,11 @@ async function fixture(initial, settings = {}, options = {}) {
   };
   const plugin = Object.create(Plugin.prototype);
   plugin.app = {
+    workspace: {
+      on(event, callback) { events.set(event, callback); return callback; },
+      onLayoutReady(callback) { layoutReady = callback; },
+      getActiveFile: () => files.get(options.activeFile) || null,
+    },
     vault,
     internalPlugins: { getPluginById: () => dailyPlugin },
     plugins: { getPlugin: () => options.periodic || null },
@@ -101,8 +117,9 @@ async function fixture(initial, settings = {}, options = {}) {
   plugin.saveData = async (value) => { plugin.saved = { ...value }; };
   plugin.addSettingTab = (tab) => { settingTab = tab; };
   plugin.addCommand = (command) => commands.push(command);
+  plugin.registerEvent = () => {};
   await plugin.onload();
-  return { plugin, vault, contents, files, writes, reads, commands, settingTab, dailyPlugin };
+  return { plugin, vault, contents, files, writes, reads, commands, settingTab, dailyPlugin, events, layoutReady };
 }
 
 const today = "daily/2026-09-22.md";
@@ -344,4 +361,187 @@ test("rollover lock prevents duplicate runs and hides undo during a move", async
   await first;
   assert.equal(f.plugin.rolloverInProgress, false);
   assert.equal(undo.checkCallback(true), true);
+});
+
+test("automatic rollover toggle defaults off and saves the upstream preference key", async () => {
+  const f = await fixture({ [today]: "## Tasks", "daily/2026-09-21.md": "- [ ] yesterday" });
+  await f.settingTab.display();
+  const toggle = toggles.get("Automatic rollover on daily note open");
+  assert.equal(toggle.value, false);
+  await f.events.get("file-open")(f.files.get(today));
+  assert.equal(f.reads.length, 0);
+  await toggle.change(true);
+  assert.equal(f.plugin.saved.rolloverOnFileCreate, true);
+  await f.events.get("file-open")(f.files.get(today));
+  assert.equal(f.contents.get(today), "## Tasks\n- [ ] yesterday");
+});
+
+test("automatic rollover only reads yesterday even in past-week mode, and never scans notes", async () => {
+  const f = await fixture({ ...sourceNotes(), [today]: "## Tasks" }, {
+    rolloverOnFileCreate: true, rolloverToTodaySource: "past-week",
+  });
+  f.plugin.getAllConfiguredDailyNotes = () => { throw new Error("must not scan the vault"); };
+  await f.events.get("file-open")(f.files.get(today));
+  assert.deepEqual(f.reads, ["daily/2026-09-21.md"]);
+  assert.deepEqual(f.writes, [today, "daily/2026-09-21.md"]);
+  assert.equal(f.contents.get("daily/2026-09-19.md"), sourceNotes()["daily/2026-09-19.md"]);
+  assert.deepEqual(f.plugin.saved.lastAutomaticRollover, { day: "2026-09-22", path: today });
+});
+
+test("automatic rollover ignores missing yesterday, other notes, and disabled daily notes", async () => {
+  const f = await fixture({ [today]: "## Tasks", "daily/2026-09-19.md": "- [ ] older" }, { rolloverOnFileCreate: true });
+  for (const file of [null, ...f.files.values()]) await f.events.get("file-open")(file);
+  assert.equal(f.reads.length, 0);
+  await f.vault.create("daily/2026-09-21.md", "- [ ] yesterday");
+  f.writes.length = 0;
+  f.dailyPlugin.enabled = false;
+  await f.events.get("file-open")(f.files.get(today));
+  assert.equal(f.reads.length, 0);
+  assert.equal(f.writes.length, 0);
+});
+
+test("automatic copy runs once across repeated opens, reloads and undo", async () => {
+  const initial = { [today]: "## Tasks", "daily/2026-09-21.md": "- [ ] yesterday" };
+  const f = await fixture(initial, { rolloverOnFileCreate: true, deleteOnComplete: false });
+  const open = () => f.events.get("file-open")(f.files.get(today));
+  await Promise.all([open(), open()]);
+  await open();
+  assert.deepEqual(f.writes, [today]);
+  assert.equal(f.contents.get("daily/2026-09-21.md"), initial["daily/2026-09-21.md"]);
+  const reloaded = await fixture(Object.fromEntries(f.contents), f.plugin.saved);
+  await reloaded.events.get("file-open")(reloaded.files.get(today));
+  assert.equal(reloaded.reads.length, 0);
+  await f.plugin.restoreUndoChanges(f.plugin.undoHistory[0]);
+  await open();
+  assert.deepEqual(Object.fromEntries(f.contents), initial);
+});
+
+test("automatic rollover runs for an already open daily note after workspace startup", async () => {
+  const f = await fixture({ [today]: "## Tasks", "daily/2026-09-21.md": "- [ ] startup" }, {
+    rolloverOnFileCreate: true,
+  }, { activeFile: today });
+  let finish;
+  const saved = new Promise((resolve) => { finish = resolve; });
+  f.plugin.saveData = async (settings) => { f.plugin.saved = settings; finish(); };
+  f.layoutReady();
+  await saved;
+  assert.equal(f.contents.get(today), "## Tasks\n- [ ] startup");
+});
+
+test("automatic rollover honors headings, task children, statuses and copy mode", async () => {
+  const source = "## Personal\n- [ ] leave\n## Work\n- [ ] parent\n  - [ ] child\n- [/] done\n- [ ]";
+  const f = await fixture({ [today]: "## Inbox\n- [ ]", "daily/2026-09-21.md": source }, {
+    rolloverOnFileCreate: true, sourceHeading: "## Work", templateHeading: "## Inbox",
+    doneStatusMarkers: "xX-/", deleteOnComplete: false,
+  });
+  await f.events.get("file-open")(f.files.get(today));
+  assert.equal(f.contents.get(today), "## Inbox\n- [ ] parent\n  - [ ] child");
+  assert.equal(f.contents.get("daily/2026-09-21.md"), source);
+});
+
+test("automatic no-ops stay quiet and allow retry when yesterday gains tasks", async () => {
+  const f = await fixture({ [today]: "## Tasks", "daily/2026-09-21.md": "- [x] done" }, { rolloverOnFileCreate: true });
+  const noticeCount = notices.length;
+  await f.events.get("file-open")(f.files.get(today));
+  assert.equal(notices.length, noticeCount);
+  assert.equal(f.plugin.settings.lastAutomaticRollover, null);
+  f.contents.set("daily/2026-09-21.md", "- [ ] new task");
+  await f.events.get("file-open")(f.files.get(today));
+  assert.equal(f.contents.get(today), "## Tasks\n- [ ] new task");
+});
+
+test("automatic rollover retries a failed destination save but never repeats a partial move", async () => {
+  for (const failAt of [today, "daily/2026-09-21.md"]) {
+    const initial = { [today]: "## Tasks", "daily/2026-09-21.md": "- [ ] task" };
+    const f = await fixture(initial, { rolloverOnFileCreate: true });
+    // Let this test inspect the error; command-level error handling is tested separately.
+    f.plugin.runRolloverOperation = (_name, operation) => operation();
+    const process = f.vault.process.bind(f.vault);
+    f.vault.process = async (file, callback) => {
+      if (file.path === failAt) throw new Error("save failed");
+      return process(file, callback);
+    };
+    await assert.rejects(f.events.get("file-open")(f.files.get(today)), /save failed/);
+    assert.equal(f.contents.get("daily/2026-09-21.md"), initial["daily/2026-09-21.md"]);
+    assert.equal(Boolean(f.plugin.settings.lastAutomaticRollover), failAt !== today);
+    f.vault.process = process;
+    await f.events.get("file-open")(f.files.get(today));
+    assert.equal(f.contents.get(today), "## Tasks\n- [ ] task");
+    await f.plugin.restoreUndoChanges(f.plugin.undoHistory[0]);
+    assert.deepEqual(Object.fromEntries(f.contents), initial);
+  }
+});
+
+test("automatic lookup supports nested formats, folder override, root and Periodic Notes", async () => {
+  for (const [folder, settings, options] of [
+    ["daily", {}, { format: "YYYY/MM/DD" }],
+    ["", {}, { folder: "", format: "YYYY/MM/DD" }],
+    ["override", { dailyNoteFolder: "/override/" }, { format: "YYYY/MM/DD" }],
+    ["periodic", {}, { periodic: { settings: { daily: { enabled: true, folder: "periodic", format: "YYYY/MM/DD" } } } }],
+  ]) {
+    const prefix = folder ? folder + "/" : "";
+    const destination = prefix + "2026/09/22.md";
+    const source = prefix + "2026/09/21.md";
+    const f = await fixture({ [destination]: "## Tasks", [source]: "- [ ] task" }, { ...settings, rolloverOnFileCreate: true }, options);
+    await f.events.get("file-open")(f.files.get(destination));
+    assert.equal(f.contents.get(destination), "## Tasks\n- [ ] task");
+    assert.deepEqual(f.reads, [source]);
+  }
+});
+
+test("automatic rollover starts again on the next calendar day", async () => {
+  const f = await fixture({ [today]: "## Tasks", "daily/2026-09-21.md": "- [ ] task", "daily/2026-09-23.md": "## Tasks" }, { rolloverOnFileCreate: true });
+  await f.events.get("file-open")(f.files.get(today));
+  const now = moment.now;
+  try {
+    moment.now = () => new Date(2026, 8, 23, 12).getTime();
+    await f.events.get("file-open")(f.files.get("daily/2026-09-23.md"));
+    assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks\n- [ ] task");
+    assert.equal(f.plugin.saved.lastAutomaticRollover.day, "2026-09-23");
+  } finally {
+    moment.now = now;
+  }
+});
+
+test("send selection command and editor menu share the move behavior, including selected children once", async () => {
+  for (const entry of ["command", "menu"]) {
+    const source = "notes/inbox.md";
+    const initial = "## Tasks\n- [ ] Tomorrow: parent\n  - [ ] first child\n  - [ ] second child\n- [x] done\n- [ ] leave";
+    const f = await fixture({ [source]: initial, "daily/2026-09-23.md": "## Tasks" }, { deleteOnComplete: false });
+    let content = initial;
+    const editor = {
+      getValue: () => content,
+      getCursor: (which) => which === "from" ? { line: 1, ch: 8 } : { line: 4, ch: 0 },
+      setValue: (value) => { content = value; },
+    };
+    const view = { file: f.files.get(source) };
+    if (entry === "command") {
+      const command = f.commands.find((command) => command.id === "send-selection-to-tomorrow");
+      assert.equal(command.name, "Send selection to tomorrow");
+      await command.editorCallback(editor, view);
+    } else {
+      const item = {
+        setTitle(title) { this.title = title; return this; },
+        setIcon() { return this; },
+        onClick(callback) { this.click = callback; return this; },
+      };
+      f.events.get("editor-menu")({ addItem: (callback) => callback(item) }, editor, view);
+      assert.equal(item.title, "Send selection to tomorrow");
+      await item.click();
+    }
+    assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks\n- [ ] parent\n  - [ ] first child\n  - [ ] second child");
+    assert.equal(content, "## Tasks\n- [x] done\n- [ ] leave");
+    assert.equal(f.plugin.undoHistory[0].changes.length, 2);
+  }
+});
+
+test("selection menu stays hidden for prose, completed tasks and multiple independent tasks", async () => {
+  const f = await fixture({ "notes/inbox.md": "" });
+  for (const content of ["plain text", "- [x] done", "- [ ] first\n- [ ] second", "```md\n- [ ] example\n```"] ) {
+    const editor = {
+      getValue: () => content,
+      getCursor: (which) => which === "from" ? { line: 0, ch: 0 } : { line: 2, ch: 5 },
+    };
+    f.events.get("editor-menu")({ addItem() { assert.fail("menu item should be hidden"); } }, editor, { file: f.files.get("notes/inbox.md") });
+  }
 });

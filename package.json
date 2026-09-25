@@ -1,6 +1,6 @@
 {
   "name": "rollover-plus",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "description": "Roll unfinished tasks between daily notes.",
   "main": "main.js",

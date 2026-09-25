@@ -55,6 +55,8 @@ async function run() {
   assert.deepEqual(plugin.settings, {
     dailyNoteFolder: "",
     rolloverToTodaySource: "previous-note",
+    rolloverOnFileCreate: false,
+    lastAutomaticRollover: null,
     sourceHeading: "none",
     templateHeading: "### ⭐ Tasks:",
     deleteOnComplete: true,
@@ -885,7 +887,8 @@ async function run() {
 
   const commandPlugin = Object.create(RolloverPlusPlugin.prototype);
   commandPlugin.loadData = async () => null;
-  commandPlugin.app = {};
+  commandPlugin.app = { workspace: { on() {}, onLayoutReady() {} } };
+  commandPlugin.registerEvent = () => {};
   commandPlugin.addSettingTab = () => {};
   const commands = [];
   commandPlugin.addCommand = (command) => commands.push(command);
@@ -907,7 +910,7 @@ async function run() {
       },
       {
         id: "send-selection-to-tomorrow",
-        name: "Rollover current selection to tomorrow",
+        name: "Send selection to tomorrow",
       },
       {
         id: "undo-last-rollover",

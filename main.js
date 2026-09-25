@@ -222,6 +222,20 @@ class RolloverSettingTab extends obsidian.PluginSettingTab {
 
     this.containerEl.empty();
     new obsidian.Setting(this.containerEl)
+      .setName("Automatic rollover on daily note open")
+      .setDesc(
+        "When you open today's daily note, roll over unfinished tasks from yesterday only, even when past week is selected below. Runs once per day after finding tasks. Uses your heading and move/copy settings."
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.rolloverOnFileCreate)
+          .onChange(async (value) => {
+            this.plugin.settings.rolloverOnFileCreate = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new obsidian.Setting(this.containerEl)
       .setName("Daily note folder")
       .setDesc(
         "Optional folder override for rollover source and destination notes. Leave blank to use the folder from Daily Notes or Periodic Notes."
@@ -533,6 +547,9 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     const DEFAULT_SETTINGS = {
       dailyNoteFolder: "",
       rolloverToTodaySource: "previous-note",
+      // Keep the upstream setting key for saved automatic-rollover preferences.
+      rolloverOnFileCreate: false,
+      lastAutomaticRollover: null,
       sourceHeading: "none",
       templateHeading: "### ⭐ Tasks:",
       deleteOnComplete: true,
@@ -1334,6 +1351,50 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     this.showRolloverResult(result, "today");
   }
 
+  async rolloverOnDailyNoteOpen(file) {
+    if (!this.settings.rolloverOnFileCreate || this.rolloverInProgress ||
+        !(file instanceof obsidian.TFile) || !this.isDailyNotesEnabled()) return;
+
+    const today = obsidian.moment();
+    const todayNote = this.getDailyNoteAtDate(today);
+    if (!todayNote || file.path !== todayNote.path) return;
+
+    const day = today.format("YYYY-MM-DD");
+    const previous = this.settings.lastAutomaticRollover;
+    if (previous?.day === day && previous.path === file.path) return;
+
+    // Direct lookup only: automatic rollover never scans older notes or the vault.
+    const sourceNote = this.getDailyNoteAtDate(today.clone().subtract(1, "day"));
+    if (!sourceNote || sourceNote.path === todayNote.path) return;
+
+    return this.runRolloverOperation("Automatic rollover", async () => {
+      const sourceContent = await this.app.vault.read(sourceNote);
+      const sourceBlocks = this.getRolloverTodoBlocksFromContent(sourceContent);
+      if (sourceBlocks.length === 0) return;
+
+      const previousUndo = this.undoHistory[0];
+      let completed = false;
+      try {
+        const result = await this.applyRollover({
+          sourceNote,
+          destinationNote: todayNote,
+          sourceContent,
+          sourceBlocks,
+          prepared: this.prepareTodoBlocks(sourceBlocks),
+        });
+        completed = true;
+        this.showRolloverResult(result, "today");
+      } finally {
+        // Remember partial writes too, so a source-save failure cannot duplicate tasks
+        // on the next open. Undo remains available and does not trigger another run.
+        if (completed || this.undoHistory[0] !== previousUndo) {
+          this.settings.lastAutomaticRollover = { day, path: todayNote.path };
+          await this.saveSettings();
+        }
+      }
+    });
+  }
+
   getEditorSelectionRange(editor) {
     const from = editor.getCursor("from");
     const to = editor.getCursor("to");
@@ -1368,13 +1429,20 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
   getTodoBlocksInSelection(content, selection) {
     const { lines } = this.splitNoteContent(content);
-    return this.getTodoBlocksFromContent(content, false)
+    const blocks = this.getTodoBlocksFromContent(content, false)
       .filter(
         (block) =>
           block.startLine >= selection.startLine &&
           block.startLine <= selection.endLine
       )
       .map((block) => this.expandSelectedTaskBlock(lines, block));
+    // A selected parent already includes its children. Do not count them twice.
+    let coveredThrough = -1;
+    return blocks.filter((block) => {
+      if (block.startLine <= coveredThrough) return false;
+      coveredThrough = block.endLine;
+      return true;
+    });
   }
 
   sameEditorSelection(editor, selection) {
@@ -1533,6 +1601,24 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
     this.addSettingTab(new RolloverSettingTab(this.app, this));
 
+    this.registerEvent(this.app.workspace.on("file-open", (file) =>
+      this.rolloverOnDailyNoteOpen(file)
+    ));
+    this.app.workspace.onLayoutReady(() => {
+      void this.rolloverOnDailyNoteOpen(this.app.workspace.getActiveFile());
+    });
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+      if (!this.isDailyNotesEnabled() || !(view?.file instanceof obsidian.TFile) ||
+          this.getTodoBlocksInSelection(editor.getValue(), this.getEditorSelectionRange(editor)).length !== 1) return;
+      menu.addItem((item) => item
+        .setTitle("Send selection to tomorrow")
+        .setIcon("calendar-plus")
+        .onClick(() => this.runRolloverOperation("Selection rollover", () =>
+          this.rolloverCurrentSelection(editor, view)
+        ))
+      );
+    }));
+
     this.addCommand({
       id: "rollover-tomorrow",
       name: "Rollover to tomorrow",
@@ -1567,7 +1653,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
     this.addCommand({
       id: "send-selection-to-tomorrow",
-      name: "Rollover current selection to tomorrow",
+      name: "Send selection to tomorrow",
       editorCallback: (editor, view) =>
         this.runRolloverOperation("Selection rollover", () =>
           this.rolloverCurrentSelection(editor, view)
