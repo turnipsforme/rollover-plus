@@ -518,7 +518,8 @@ test("send selection command and editor menu share the move behavior, including 
     if (entry === "command") {
       const command = f.commands.find((command) => command.id === "send-selection-to-tomorrow");
       assert.equal(command.name, "Send selection to tomorrow");
-      await command.editorCallback(editor, view);
+      f.plugin.getActiveEditorTarget = () => ({ editor, view });
+      await command.checkCallback(false);
     } else {
       const item = {
         setTitle(title) { this.title = title; return this; },
@@ -535,13 +536,108 @@ test("send selection command and editor menu share the move behavior, including 
   }
 });
 
-test("selection menu stays hidden for prose, completed tasks and multiple independent tasks", async () => {
+test("selection menu stays hidden for prose, completed tasks and fenced examples", async () => {
   const f = await fixture({ "notes/inbox.md": "" });
-  for (const content of ["plain text", "- [x] done", "- [ ] first\n- [ ] second", "```md\n- [ ] example\n```"] ) {
+  for (const content of ["plain text", "- [x] done", "```md\n- [ ] example\n```"] ) {
     const editor = {
       getValue: () => content,
       getCursor: (which) => which === "from" ? { line: 0, ch: 0 } : { line: 2, ch: 5 },
     };
     f.events.get("editor-menu")({ addItem() { assert.fail("menu item should be hidden"); } }, editor, { file: f.files.get("notes/inbox.md") });
   }
+});
+
+test("selection menu appears for multiple selected task lines", async () => {
+  const source = "notes/inbox.md";
+  const initial = "- [ ] first\n- [ ] second\n- [ ] leave";
+  const f = await fixture({ [source]: initial, "daily/2026-09-23.md": "## Tasks" }, { deleteOnComplete: false });
+  let content = initial;
+  const editor = {
+    getValue: () => content,
+    getCursor: (which) => which === "from" ? { line: 0, ch: 3 } : { line: 1, ch: 4 },
+    setValue: (value) => { content = value; },
+  };
+  const item = {
+    setTitle(title) { this.title = title; return this; },
+    setIcon() { return this; },
+    onClick(callback) { this.click = callback; return this; },
+  };
+  f.events.get("editor-menu")({ addItem: (callback) => callback(item) }, editor, { file: f.files.get(source) });
+  assert.equal(item.title, "Send selection to tomorrow");
+  await item.click();
+  assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks\n- [ ] first\n- [ ] second");
+  assert.equal(content, "- [ ] leave");
+});
+
+test("selection command rolls every task line touched by a multi-line selection", async () => {
+  const source = "notes/inbox.md";
+  const initial = "intro\n- [ ] first\nmiddle\n- [ ] second\n- [x] done\n- [ ] leave";
+  const f = await fixture({ [source]: initial, "daily/2026-09-23.md": "## Tasks" }, { deleteOnComplete: false });
+  let content = initial;
+  const editor = {
+    getValue: () => content,
+    getCursor: (which) => which === "from" ? { line: 0, ch: 4 } : { line: 3, ch: 5 },
+    setValue: (value) => { content = value; },
+  };
+  const command = f.commands.find((command) => command.id === "send-selection-to-tomorrow");
+  f.plugin.getActiveEditorTarget = () => ({ editor, view: { file: f.files.get(source) } });
+  await command.checkCallback(false);
+  assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks\n- [ ] first\n- [ ] second");
+  assert.equal(content, "intro\nmiddle\n- [x] done\n- [ ] leave");
+});
+
+test("journal editor body keeps frontmatter and hidden title in undo", async () => {
+  const source = "daily/2026-09-22.md";
+  const fullContent = "---\ntags: [daily]\n---\n# Tuesday\n\n## Tasks\n- [ ] move me\n- [ ] keep me";
+  const body = "## Tasks\n- [ ] move me\n- [ ] keep me";
+  const f = await fixture({ [source]: fullContent, "daily/2026-09-23.md": "## Tasks" }, { deleteOnComplete: false });
+  let editorContent = body;
+  const editor = {
+    getValue: () => editorContent,
+    getCursor: (which) => which === "from" ? { line: 1, ch: 4 } : { line: 1, ch: 12 },
+    setValue: (value) => { editorContent = value; },
+  };
+  let flushes = 0;
+  const leaf = { view: { getViewType: () => "journal-view-wren", flushAll: async () => { flushes++; } } };
+  f.plugin.app.workspace.activeEditor = null;
+  f.plugin.app.workspace.activeLeaf = leaf;
+  f.plugin.app.workspace.getActiveViewOfType = () => null;
+  f.plugin.app.plugins.getPlugin = (id) => id === "journal-view-wren"
+    ? { workspaceEditors: { lastActive: { editor, file: f.files.get(source), leaf } } }
+    : null;
+  const command = f.commands.find((command) => command.id === "send-selection-to-tomorrow");
+  await command.checkCallback(false);
+
+  assert.equal(flushes, 1, "unsaved journal edits are flushed before undo content is read");
+  assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks\n- [ ] move me");
+  assert.equal(editorContent, "## Tasks\n- [ ] keep me");
+  const sourceChange = f.plugin.undoHistory[0].changes.find((change) => change.file.path === source);
+  assert.equal(sourceChange.oldContent, fullContent);
+
+  await f.plugin.restoreUndoChanges(f.plugin.undoHistory[0]);
+  assert.equal(f.contents.get(source), fullContent);
+  assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks");
+});
+
+test("journal save failure stops the move before anything is written", async () => {
+  const source = "daily/2026-09-22.md";
+  const initial = "## Tasks\n- [ ] move me";
+  const f = await fixture({ [source]: initial, "daily/2026-09-23.md": "## Tasks" });
+  let editorContent = initial;
+  const editor = {
+    getValue: () => editorContent,
+    getCursor: () => ({ line: 1, ch: 4 }),
+    setValue: (value) => { editorContent = value; },
+  };
+  const leaf = { view: { getViewType: () => "journal-view-wren", flushAll: async () => { throw new Error("save failed"); } } };
+  f.plugin.app.workspace.activeEditor = null;
+  f.plugin.app.workspace.activeLeaf = leaf;
+  f.plugin.app.plugins.getPlugin = (id) => id === "journal-view-wren"
+    ? { workspaceEditors: { lastActive: { editor, file: f.files.get(source), leaf } } }
+    : null;
+  const command = f.commands.find((command) => command.id === "send-selection-to-tomorrow");
+  await command.checkCallback(false);
+  assert.equal(f.contents.get("daily/2026-09-23.md"), "## Tasks");
+  assert.equal(editorContent, initial);
+  assert.equal(f.plugin.undoHistory.length, 0);
 });

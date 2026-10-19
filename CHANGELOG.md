@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.0
+
+- Roll over every unfinished task line the selection touches, including lines that are only partly selected and selections that span several tasks. Previously the command refused a selection with more than one task.
+- Show **Send selection to tomorrow** in the editor menu whenever the selection contains a task, not only when it contains exactly one.
+- Make the command work inside Journal View without changing that plugin. The command palette no longer loses the day's editor when it takes focus, and pending Journal View edits are saved before tasks move.
+- Keep **Undo last rollover** safe in editors that show only the note body. The full source note, including frontmatter and a hidden daily-note title, is captured before the move and restored on undo.
+
 ## 2.3.0
 
 - Restore **Automatic rollover on daily note open**, using the preference key from Rollover Daily Todos. Enable it in settings to run when today's note opens or is already open at startup.

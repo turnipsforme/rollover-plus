@@ -5,7 +5,7 @@ Keep unfinished tasks moving without copying and pasting them between daily note
 - **Rollover to today:** Bring unfinished tasks from your most recent earlier daily note into today's note, or choose the last seven daily notes in settings.
 - **Rollover to-dos from the past week:** Bring unfinished tasks from the seven most recent earlier daily notes into today.
 - **Rollover to tomorrow:** Send every unfinished task in today's note to tomorrow's note.
-- **Send selection to tomorrow:** Send one task from any Markdown note to tomorrow's note, from the command palette or editor's right-click menu.
+- **Send selection to tomorrow:** Send the selected task or tasks from any Markdown note to tomorrow's note, from the command palette, a hotkey, or the editor's right-click menu.
 
 The plugin uses the folder, filename format, and template from Obsidian's Daily Notes plugin or the daily-note settings in Periodic Notes. An optional folder override is available in Rollover Plus settings.
 
@@ -45,17 +45,21 @@ All collected tasks are saved to today in one write before any source tasks are 
 
 The separate command is available when **Rollover to today source** is set to **Yesterday**. Choose **Past week** to use the same behavior through your usual Rollover to today command and hotkey instead.
 
-### Send one task to tomorrow
+### Send selection to tomorrow
 
-Put the cursor anywhere on one unfinished task, or select part of its line, then run **Send selection to tomorrow** from the command palette or the editor's right-click menu. This was previously named **Rollover current selection to tomorrow**; its command ID is unchanged, so existing Rollover Plus hotkeys still work. Rollover Plus moves the complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
+Put the cursor anywhere on one unfinished task, or select any part of one or more task lines, then run **Send selection to tomorrow** from the command palette, a hotkey, or the editor's right-click menu. This was previously named **Rollover current selection to tomorrow**; its command ID is unchanged, so existing Rollover Plus hotkeys still work. Rollover Plus moves each complete task line into tomorrow's daily note, so it never leaves an empty checkbox shell behind.
+
+Every task line the selection touches is moved, including lines that are only partly selected. A selection that starts or ends in the middle of a line still includes that whole task.
 
 This command:
 
 - works from any Markdown note;
-- moves only the exact selected task when identical task text appears elsewhere;
+- moves only the exact selected tasks when identical task text appears elsewhere;
 - includes indented child lines when **Roll over task children** is enabled, even when you select the parent and its children together;
-- always removes the selected source task after the destination is saved, even when bulk rollover is set to copy;
-- keeps the source task if the editor changes while tomorrow's note is being saved.
+- always removes the selected source tasks after the destination is saved, even when bulk rollover is set to copy;
+- keeps the source tasks if the editor changes while tomorrow's note is being saved.
+
+It also works inside Journal View, including from the command palette. Pending Journal View edits are saved before anything moves, and **Undo last rollover** restores the whole note, including frontmatter and a hidden daily-note title.
 
 ## A quick safety net
 

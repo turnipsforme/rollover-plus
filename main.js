@@ -1180,7 +1180,12 @@ class RolloverPlusPlugin extends obsidian.Plugin {
           result.sourceWriteSkipped = true;
           result.sourceDeleted = false;
         } else {
-          changes.push({ file: sourceNote, oldContent: sourceContent });
+          // Editors that hide frontmatter (Journal View) supply only the body;
+          // undo restores the whole file read before the move.
+          changes.push({
+            file: sourceNote,
+            oldContent: source.undoContent ?? sourceContent,
+          });
         }
       }
       result.changed = changes.length > 0;
@@ -1518,6 +1523,34 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     editor.setValue(after);
   }
 
+  getActiveEditorTarget() {
+    const workspace = this.app.workspace;
+    const active = workspace.activeEditor;
+    if (active?.editor?.getCursor) {
+      return { editor: active.editor, view: active };
+    }
+    // Older Obsidian versions have no workspace.activeEditor.
+    const markdownView = obsidian.MarkdownView
+      ? workspace.getActiveViewOfType?.(obsidian.MarkdownView)
+      : null;
+    if (markdownView?.editor) {
+      return { editor: markdownView.editor, view: markdownView };
+    }
+    // Journal View clears activeEditor when a modal such as the command palette
+    // takes focus, but its bridge keeps the day's editor.
+    // shortcut: reads Journal View internals; revisit if that plugin changes.
+    const journalOwner =
+      this.app.plugins?.getPlugin?.("journal-view-wren")?.workspaceEditors?.lastActive;
+    if (
+      journalOwner?.editor?.getCursor &&
+      journalOwner.leaf &&
+      journalOwner.leaf === workspace.activeLeaf
+    ) {
+      return { editor: journalOwner.editor, view: journalOwner };
+    }
+    return null;
+  }
+
   async rolloverCurrentSelection(editor, view) {
     if (!this.checkDailyNotesEnabled()) {
       return;
@@ -1538,14 +1571,27 @@ class RolloverPlusPlugin extends obsidian.Plugin {
 
     if (selectedBlocks.length === 0) {
       new obsidian.Notice(
-        "Rollover Plus: Put the cursor on one unfinished Markdown task, or select it.",
+        "Rollover Plus: Put the cursor on an unfinished Markdown task, or select one or more.",
         5000
       );
       return;
     }
-    if (selectedBlocks.length > 1) {
-      new obsidian.Notice("Rollover Plus: Select one task at a time.", 5000);
-      return;
+
+    // Journal View shows only the note body, so undo must restore the whole
+    // file. Flush unsaved edits first so the file matches the editor.
+    let undoContent;
+    if (view?.leaf?.view?.getViewType?.() === "journal-view-wren") {
+      try {
+        if (typeof view.leaf.view.flushAll === "function") await view.leaf.view.flushAll();
+        undoContent = await this.app.vault.read(sourceNote);
+      } catch (error) {
+        console.warn("Rollover Plus: could not capture the source note for undo.", error);
+        new obsidian.Notice(
+          "Rollover Plus couldn't save this note before moving tasks. Nothing was moved.",
+          6000
+        );
+        return;
+      }
     }
 
     const prepared = this.prepareTodoBlocks(selectedBlocks, true);
@@ -1558,14 +1604,14 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       }
       if (!tomorrowNote) {
         new obsidian.Notice(
-          "Rollover Plus couldn't create tomorrow's daily note. The selected task was kept.",
+          "Rollover Plus couldn't create tomorrow's daily note. The selected tasks were kept.",
           6000
         );
         return;
       }
       if (sourceNote.path === tomorrowNote.path) {
         new obsidian.Notice(
-          "Rollover Plus: The selected task is already in tomorrow's daily note.",
+          "Rollover Plus: The selected tasks are already in tomorrow's daily note.",
           5000
         );
         return;
@@ -1576,6 +1622,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
       sourceNote,
       destinationNote: tomorrowNote,
       sourceContent,
+      undoContent,
       sourceBlocks: selectedBlocks,
       prepared,
       forceDeleteSource: true,
@@ -1609,7 +1656,7 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     });
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
       if (!this.isDailyNotesEnabled() || !(view?.file instanceof obsidian.TFile) ||
-          this.getTodoBlocksInSelection(editor.getValue(), this.getEditorSelectionRange(editor)).length !== 1) return;
+          this.getTodoBlocksInSelection(editor.getValue(), this.getEditorSelectionRange(editor)).length === 0) return;
       menu.addItem((item) => item
         .setTitle("Send selection to tomorrow")
         .setIcon("calendar-plus")
@@ -1654,10 +1701,16 @@ class RolloverPlusPlugin extends obsidian.Plugin {
     this.addCommand({
       id: "send-selection-to-tomorrow",
       name: "Send selection to tomorrow",
-      editorCallback: (editor, view) =>
-        this.runRolloverOperation("Selection rollover", () =>
-          this.rolloverCurrentSelection(editor, view)
-        ),
+      checkCallback: (checking) => {
+        const target = this.getActiveEditorTarget();
+        if (!target) return false;
+        if (!checking) {
+          return this.runRolloverOperation("Selection rollover", () =>
+            this.rolloverCurrentSelection(target.editor, target.view)
+          );
+        }
+        return true;
+      },
     });
 
     this.addCommand({
